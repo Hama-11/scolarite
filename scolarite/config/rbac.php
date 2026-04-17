@@ -56,7 +56,7 @@ return [
             'grades.read', 'attendance.read',
             'assignments.read', 'assignments.submit',
             'requests.read', 'requests.create',
-            'payments.read', 'documents.read', 'documents.download',
+            'payments.read', 'payments.create', 'documents.read', 'documents.download',
             'announcements.read', 'messages.read', 'messages.create',
             'notifications.read', 'notifications.update_preferences',
         ],

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import AppLayout from "../components/AppLayout";
-import { Card, CardHeader, Badge, Spinner, Alert, Select } from "../components/ui";
+import { Card, CardHeader, Badge, Spinner, Alert, Select, Input, Button } from "../components/ui";
 import { courseService, gradeService } from "../services/api";
 import "../components/dashboard.css";
 
@@ -24,6 +24,9 @@ export default function StudentPathway() {
   const [courses, setCourses] = useState([]);
   const [grades, setGrades] = useState([]);
   const [semesterFilter, setSemesterFilter] = useState("all");
+  const [hypotheticalItems, setHypotheticalItems] = useState([
+    { id: 1, score: 10, maxScore: 20, coefficient: 1, semester: "1" },
+  ]);
 
   useEffect(() => {
     let mounted = true;
@@ -111,6 +114,55 @@ export default function StudentPathway() {
     return { totalCredits, acquiredCredits, remaining };
   }, [enrichedCourses]);
 
+  const semesterRealAverages = useMemo(() => {
+    const map = new Map();
+    enrichedCourses.forEach((c) => {
+      const sem = String(c?.module?.semester?.number ?? c?.semester ?? "0");
+      if (!map.has(sem)) map.set(sem, []);
+      if (c._avg20 != null) map.get(sem).push(c._avg20);
+    });
+    const result = {};
+    map.forEach((vals, sem) => {
+      result[sem] = vals.length ? vals.reduce((s, x) => s + x, 0) / vals.length : null;
+    });
+    return result;
+  }, [enrichedCourses]);
+
+  const simulation = useMemo(() => {
+    const bySemester = {};
+    hypotheticalItems.forEach((item) => {
+      const sem = String(item.semester || "0");
+      const score = Number(item.score);
+      const maxScore = Number(item.maxScore);
+      const coef = Number(item.coefficient);
+      if (!Number.isFinite(score) || !Number.isFinite(maxScore) || !Number.isFinite(coef) || maxScore <= 0 || coef <= 0) return;
+      const normalized = (score / maxScore) * 20;
+      if (!bySemester[sem]) bySemester[sem] = { weightedSum: 0, coefSum: 0 };
+      bySemester[sem].weightedSum += normalized * coef;
+      bySemester[sem].coefSum += coef;
+    });
+
+    const semResults = Object.keys(bySemester).map((sem) => {
+      const baseAvg = semesterRealAverages[sem];
+      const baseWeight = 1;
+      const simAvg = bySemester[sem].coefSum
+        ? bySemester[sem].weightedSum / bySemester[sem].coefSum
+        : null;
+      const projected = baseAvg == null
+        ? simAvg
+        : ((baseAvg * baseWeight) + ((simAvg || 0) * bySemester[sem].coefSum)) / (baseWeight + bySemester[sem].coefSum);
+      return {
+        semester: sem,
+        currentAverage: baseAvg,
+        simulatedAverage: simAvg,
+        projectedAverage: projected,
+        validated: projected != null ? projected >= 10 : false,
+      };
+    });
+
+    return semResults.sort((a, b) => Number(a.semester) - Number(b.semester));
+  }, [hypotheticalItems, semesterRealAverages]);
+
   if (loading) {
     return (
       <AppLayout title="Parcours académique">
@@ -166,6 +218,88 @@ export default function StudentPathway() {
             <option value="1">Semestre 1</option>
             <option value="2">Semestre 2</option>
           </Select>
+        </div>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader title="Simulateur de moyenne avancé" subtitle="Ajoutez des notes hypothétiques par semestre" />
+        <div className="p-6" style={{ display: "grid", gap: 10 }}>
+          {hypotheticalItems.map((item) => (
+            <div key={item.id} style={{ display: "grid", gridTemplateColumns: "120px 120px 120px 120px 1fr", gap: 10, alignItems: "end" }}>
+              <Input
+                label="Semestre"
+                type="number"
+                min="1"
+                value={item.semester}
+                onChange={(e) => setHypotheticalItems((prev) => prev.map((p) => p.id === item.id ? { ...p, semester: e.target.value } : p))}
+              />
+              <Input
+                label="Note"
+                type="number"
+                min="0"
+                value={item.score}
+                onChange={(e) => setHypotheticalItems((prev) => prev.map((p) => p.id === item.id ? { ...p, score: e.target.value } : p))}
+              />
+              <Input
+                label="Sur"
+                type="number"
+                min="1"
+                value={item.maxScore}
+                onChange={(e) => setHypotheticalItems((prev) => prev.map((p) => p.id === item.id ? { ...p, maxScore: e.target.value } : p))}
+              />
+              <Input
+                label="Coefficient"
+                type="number"
+                min="1"
+                value={item.coefficient}
+                onChange={(e) => setHypotheticalItems((prev) => prev.map((p) => p.id === item.id ? { ...p, coefficient: e.target.value } : p))}
+              />
+              <Button
+                variant="outline"
+                onClick={() => setHypotheticalItems((prev) => prev.filter((p) => p.id !== item.id))}
+                disabled={hypotheticalItems.length === 1}
+              >
+                Supprimer
+              </Button>
+            </div>
+          ))}
+          <div>
+            <Button
+              variant="outline"
+              onClick={() =>
+                setHypotheticalItems((prev) => [
+                  ...prev,
+                  { id: Date.now(), score: 10, maxScore: 20, coefficient: 1, semester: "1" },
+                ])
+              }
+            >
+              + Ajouter une hypothèse
+            </Button>
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {simulation.length === 0 ? (
+              <div className="item-subtitle">Aucune simulation valide pour le moment.</div>
+            ) : (
+              simulation.map((row) => (
+                <div className="ui-card compact" key={row.semester}>
+                  <div className="item-row">
+                    <div>
+                      <div className="item-title">Semestre {row.semester}</div>
+                      <div className="item-subtitle" style={{ marginTop: 4 }}>
+                        Actuelle: {row.currentAverage == null ? "—" : row.currentAverage.toFixed(2)} / 20
+                      </div>
+                      <div className="item-subtitle" style={{ marginTop: 4 }}>
+                        Projetée: {row.projectedAverage == null ? "—" : row.projectedAverage.toFixed(2)} / 20
+                      </div>
+                    </div>
+                    <Badge variant={row.validated ? "success" : "warning"}>
+                      {row.validated ? "Semestre validé" : "Semestre non validé"}
+                    </Badge>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </Card>
 

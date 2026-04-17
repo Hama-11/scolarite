@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import AppLayout from "../components/AppLayout";
 import { api } from "../api/axios";
+import { Alert, Button } from "../components/ui";
+import { paymentService } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import "../components/dashboard.css";
 
@@ -10,9 +12,12 @@ export default function Tuitions() {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("tuitions");
+  const [error, setError] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
+      setError("");
       if (isStudent()) {
         const [tuitionRes, paymentRes] = await Promise.all([
           api.get("/my/tuitions"),
@@ -38,6 +43,48 @@ export default function Tuitions() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const startOnlinePayment = async (tuitionId) => {
+    try {
+      setActionLoading(true);
+      setError("");
+      const res = await paymentService.createCheckoutSession({
+        tuition_id: tuitionId,
+        provider: "stripe",
+      });
+      const url = res?.data?.checkout_url;
+      if (!url) {
+        setError("Impossible d'initialiser le paiement en ligne.");
+        return;
+      }
+      window.location.href = url;
+    } catch (err) {
+      setError(err?.response?.data?.message || "Échec de l'initialisation du paiement en ligne.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const downloadReceipt = async (paymentId) => {
+    try {
+      setActionLoading(true);
+      setError("");
+      const res = await paymentService.getReceipt(paymentId);
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `recu-paiement-${paymentId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err?.response?.data?.message || "Impossible de télécharger le reçu PDF.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
@@ -86,6 +133,11 @@ export default function Tuitions() {
         <h2>Frais de scolarité</h2>
         <p>Gérez vos frais de scolarité et consultez l'historique des paiements.</p>
       </div>
+      {error ? (
+        <Alert variant="error" className="mb-4">
+          {error}
+        </Alert>
+      ) : null}
 
       {/* Summary Cards */}
       <div className="stats-grid">
@@ -158,6 +210,7 @@ export default function Tuitions() {
                       <th>Montant</th>
                       <th>Date d'échéance</th>
                       <th>Statut</th>
+                      {isStudent() && <th>Paiement</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -177,6 +230,18 @@ export default function Tuitions() {
                             {tuition.status === "paid" ? "Payé" : tuition.status === "pending" ? "En attente" : "En retard"}
                           </span>
                         </td>
+                        {isStudent() && (
+                          <td>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={actionLoading || tuition.status === "paid"}
+                              onClick={() => startOnlinePayment(tuition.id)}
+                            >
+                              {tuition.status === "paid" ? "Déjà payé" : "Payer en ligne"}
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -205,6 +270,7 @@ export default function Tuitions() {
                       <th>Méthode</th>
                       <th>Référence</th>
                       <th>Statut</th>
+                      <th>Reçu</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -224,6 +290,16 @@ export default function Tuitions() {
                           >
                             {payment.status === "completed" ? "Complété" : payment.status}
                           </span>
+                        </td>
+                        <td>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={actionLoading || payment.status !== "completed"}
+                            onClick={() => downloadReceipt(payment.id)}
+                          >
+                            PDF sécurisé
+                          </Button>
                         </td>
                       </tr>
                     ))}

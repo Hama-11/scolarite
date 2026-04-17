@@ -147,7 +147,8 @@ export const paymentService = {
   create: (data) => api.post('/payments', data),
   update: (id, data) => api.put(`/payments/${id}`, data),
   delete: (id) => api.delete(`/payments/${id}`),
-  getReceipt: (paymentId) => api.get(`/payments/${paymentId}/receipt`),
+  getReceipt: (paymentId) => api.get(`/payments/${paymentId}/receipt`, { responseType: 'blob' }),
+  createCheckoutSession: (data) => api.post('/payments/checkout-session', data),
   getMyPayments: () => api.get('/my/payments'),
 };
 

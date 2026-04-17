@@ -244,7 +244,10 @@ Route::middleware(['auth:sanctum', 'permission:payments.read'])->group(function 
     // Payments
     Route::apiResource('payments', PaymentController::class);
     Route::get('/payments/{payment}/receipt', [PaymentController::class, 'generateReceipt']);
+    Route::post('/payments/checkout-session', [PaymentController::class, 'createCheckoutSession'])->middleware('permission:payments.create');
 });
+
+Route::get('/payments/{payment}/verify', [PaymentController::class, 'verifyReceipt']);
 
 // ============================================
 // Scholarship Routes
