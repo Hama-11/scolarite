@@ -53,7 +53,7 @@ test.describe("Routes protegees", () => {
 
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/dashboard$/);
-    await expect(page.getByRole("heading", { name: /Tableau de bord/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Tableau de bord/i, level: 2 })).toBeVisible();
   });
 
   test("accede a la page cours avec session mockee", async ({ page }) => {

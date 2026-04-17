@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import AppLayout from "../components/AppLayout";
-import { Card, CardHeader, Badge, Spinner, Alert, Select, Input } from "../components/ui";
+import { Card, CardHeader, Badge, Spinner, Alert, Select, Input, Button } from "../components/ui";
 import { attendanceService, courseService, gradeService, assignmentService } from "../services/api";
 import "../components/dashboard.css";
 
@@ -299,6 +300,11 @@ export default function ProfessorRisk() {
                     {riskBadge(r.riskScore)}
                     <div className="item-subtitle" style={{ marginTop: 6 }}>
                       Score: {r.riskScore}
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <Link to={`/professor/risk/student/${r.id}?course_id=${encodeURIComponent(selectedCourseId || "")}`}>
+                        <Button size="sm" variant="outline">Détails</Button>
+                      </Link>
                     </div>
                   </div>
                 </div>
