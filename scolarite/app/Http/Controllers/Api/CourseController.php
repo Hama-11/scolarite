@@ -12,7 +12,7 @@ class CourseController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Course::with(['program', 'professor']);
+        $query = Course::with(['program', 'professor', 'module.semester']);
         
         if ($request->has('program_id')) {
             $query->where('program_id', $request->program_id);
@@ -56,7 +56,7 @@ class CourseController extends Controller
 
     public function show(Course $course)
     {
-        return response()->json($course->load(['program', 'professor', 'assignments', 'documents']));
+        return response()->json($course->load(['program', 'professor', 'module.semester', 'assignments', 'documents']));
     }
 
     public function update(Request $request, Course $course)
@@ -101,7 +101,7 @@ class CourseController extends Controller
         }
         
         $enrollments = CourseEnrollment::where('student_id', $user->student->id)
-            ->with(['course.program', 'course.professor'])
+            ->with(['course.program', 'course.professor', 'course.module.semester'])
             ->get();
         
         // Extract courses from enrollments
@@ -172,7 +172,7 @@ class CourseController extends Controller
             return response()->json(['data' => []]);
         }
 
-        $courses = Course::with(['program', 'professor'])
+        $courses = Course::with(['program', 'professor', 'module.semester'])
             ->where('professor_id', $user->professor->id)
             ->orderBy('name')
             ->get();

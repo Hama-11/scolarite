@@ -48,6 +48,7 @@ const navConfig = {
         { icon: "📝", label: "Notes", path: "/grades" },
         { icon: "📋", label: "Devoirs", path: "/assignments" },
         { icon: "✅", label: "Absences", path: "/attendance" },
+        { icon: "🚦", label: "Étudiants à risque", path: "/professor/risk" },
       ],
     },
     {
@@ -75,6 +76,7 @@ const navConfig = {
       section: "Suivi académique",
       items: [
         { icon: "📝", label: "Mes notes", path: "/grades" },
+        { icon: "🧭", label: "Parcours académique", path: "/student/pathway" },
         { icon: "📋", label: "Devoirs", path: "/assignments" },
         { icon: "✅", label: "Absences", path: "/attendance" },
       ],

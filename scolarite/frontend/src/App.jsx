@@ -37,6 +37,8 @@ const AdminSchoolClasses = lazy(() => import("./pages/AdminSchoolClasses"));
 const AdminOfficialRequests = lazy(() => import("./pages/AdminOfficialRequests"));
 const AdminGradeDisputesPage = lazy(() => import("./pages/AdminGradeDisputesPage"));
 const ProfessorSchoolClasses = lazy(() => import("./pages/ProfessorSchoolClasses"));
+const StudentPathway = lazy(() => import("./pages/StudentPathway"));
+const ProfessorRisk = lazy(() => import("./pages/ProfessorRisk"));
 
 // Loading Spinner Component
 function LoadingSpinner() {
@@ -136,11 +138,31 @@ export default function App() {
             }
           />
           <Route
+            path="/student/pathway"
+            element={
+              <ProtectedRoute>
+                <RequireRole allow={[ROLE.ETUDIANT]}>
+                  <StudentPathway />
+                </RequireRole>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/professor/school-classes"
             element={
               <ProtectedRoute>
                 <RequireRole allow={[ROLE.ENSEIGNANT]}>
                   <ProfessorSchoolClasses />
+                </RequireRole>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/professor/risk"
+            element={
+              <ProtectedRoute>
+                <RequireRole allow={[ROLE.ENSEIGNANT]}>
+                  <ProfessorRisk />
                 </RequireRole>
               </ProtectedRoute>
             }

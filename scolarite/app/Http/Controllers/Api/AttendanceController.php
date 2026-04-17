@@ -15,6 +15,10 @@ class AttendanceController extends Controller
     public function index(Request $request)
     {
         $query = Attendance::with(['student.user', 'course']);
+
+        $perPage = (int) $request->get('per_page', 30);
+        if ($perPage < 1) $perPage = 30;
+        if ($perPage > 200) $perPage = 200;
         
         if ($request->has('schedule_id')) {
             $schedule = Schedule::find($request->schedule_id);
@@ -39,7 +43,7 @@ class AttendanceController extends Controller
             $query->where('status', $request->status);
         }
         
-        $attendances = $query->orderBy('date', 'desc')->paginate(30);
+        $attendances = $query->orderBy('date', 'desc')->paginate($perPage);
         
         return response()->json($attendances);
     }

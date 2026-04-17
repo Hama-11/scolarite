@@ -9,8 +9,10 @@ import {
   courseService,
   scheduleService,
   gradeService,
+  assignmentService,
   announcementService,
   notificationService,
+  messageService,
   statisticsService,
 } from "../services/api";
 
@@ -25,6 +27,9 @@ export default function Dashboard() {
   const [announcements, setAnnouncements] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [studentProgress, setStudentProgress] = useState({ acquiredCredits: 0, totalCredits: 0 });
+  const [professorRisk, setProfessorRisk] = useState({ overdueAssignments: 0, totalAssignments: 0 });
 
   const isStudentUser = canonicalRole === ROLE.ETUDIANT;
   const isProfessorUser = canonicalRole === ROLE.ENSEIGNANT;
@@ -81,20 +86,44 @@ export default function Dashboard() {
         }
 
         if (roleKey === "professor") {
-          const [coursesRes, scheduleRes, annRes] = await Promise.all([
+          const [coursesRes, scheduleRes, annRes, unreadMsgRes] = await Promise.all([
             courseService.getProfessorCourses(),
             scheduleService.getAll({ scope: "professor" }).catch(() => ({ data: [] })),
             announcementService.getAll({ per_page: 3 }),
+            messageService.getUnreadCount().catch(() => ({ data: { unread_count: 0 } })),
           ]);
           const coursesList = Array.isArray(coursesRes?.data) ? coursesRes.data : coursesRes?.data?.data || [];
           const annPayload = annRes?.data;
           const annList = Array.isArray(annPayload) ? annPayload : annPayload?.data || [];
           const schedPayload = scheduleRes?.data;
           const schedList = Array.isArray(schedPayload) ? schedPayload : schedPayload?.data || [];
+          const unreadMsg = Number(
+            unreadMsgRes?.data?.unread_count ?? unreadMsgRes?.data?.count ?? unreadMsgRes?.data ?? 0
+          );
+
+          const assignmentResponses = await Promise.all(
+            coursesList.map((course) =>
+              assignmentService.getByCourse(course.id).catch(() => ({ data: [] }))
+            )
+          );
+          const assignments = assignmentResponses.flatMap((res) =>
+            Array.isArray(res?.data) ? res.data : res?.data?.data || []
+          );
+          const now = Date.now();
+          const overdueAssignments = assignments.filter((a) => {
+            const due = a?.due_date ? new Date(a.due_date).getTime() : null;
+            return due && due < now;
+          }).length;
+
           if (!mounted) return;
           setStats({
             courses: coursesList.length,
             schedule: schedList.length,
+          });
+          setUnreadMessages(Number.isFinite(unreadMsg) ? unreadMsg : 0);
+          setProfessorRisk({
+            overdueAssignments,
+            totalAssignments: assignments.length,
           });
           setCourses(coursesList);
           setSchedule(schedList);
@@ -122,6 +151,8 @@ export default function Dashboard() {
           schedule: sList.length,
           grades: gArr.length,
         });
+        const progress = computeStudentProgress(cList, gArr);
+        setStudentProgress(progress);
         setCourses(cList);
         setSchedule(sList);
         setGrades(gArr);
@@ -185,7 +216,7 @@ export default function Dashboard() {
             <StatCard title="Mes cours" value={stats?.courses} icon={<CourseIcon />} color="blue" />
             <StatCard title="Emploi du temps" value={stats?.schedule} icon={<StudentIcon />} color="green" />
             <StatCard title="Notifications" value={unreadNotifications || 0} icon={<GradeIcon />} color="purple" />
-            <StatCard title="Messages" value={0} icon={<BellIcon />} color="orange" />
+            <StatCard title="Messages non lus" value={unreadMessages || 0} icon={<BellIcon />} color="orange" />
           </>
         ) : (
           <>
@@ -351,6 +382,31 @@ export default function Dashboard() {
               ) : (
                 <div className="muted-center">Aucune note disponible.</div>
               )}
+            </Card>
+          )}
+
+          {isStudentUser && (
+            <StudentInsightsCard
+              grades={grades}
+              acquiredCredits={studentProgress.acquiredCredits}
+              totalCredits={studentProgress.totalCredits}
+            />
+          )}
+
+          {isProfessorUser && (
+            <Card>
+              <CardHeader title="Étudiants à risque (indicateurs)" />
+              <div className="ui-card compact">
+                <div className="item-row">
+                  <span className="item-title">Devoirs en retard</span>
+                  <Badge variant={professorRisk.overdueAssignments > 0 ? "warning" : "success"}>
+                    {professorRisk.overdueAssignments}
+                  </Badge>
+                </div>
+                <div className="item-subtitle" style={{ marginTop: 8 }}>
+                  Total devoirs suivis: {professorRisk.totalAssignments}
+                </div>
+              </div>
             </Card>
           )}
         </div>
@@ -761,4 +817,74 @@ function formatDate(date) {
   } catch {
     return "";
   }
+}
+
+function computeStudentProgress(courses, grades) {
+  const totalCredits = courses.reduce((sum, c) => sum + Number(c?.credits || 0), 0);
+  const passedCourseIds = new Set();
+  grades.forEach((g) => {
+    const value = Number(g?.value ?? g?.grade ?? 0);
+    const maxValue = Number(g?.max_value ?? g?.max_score ?? 20);
+    const normalizedOn20 = maxValue > 0 ? (value / maxValue) * 20 : 0;
+    if (normalizedOn20 >= 10 && g?.course_id) {
+      passedCourseIds.add(g.course_id);
+    }
+  });
+  const acquiredCredits = courses
+    .filter((c) => passedCourseIds.has(c.id))
+    .reduce((sum, c) => sum + Number(c?.credits || 0), 0);
+  return { acquiredCredits, totalCredits };
+}
+
+function StudentInsightsCard({ grades, acquiredCredits, totalCredits }) {
+  const [target, setTarget] = useState(12);
+  const avg = computeCurrentAverage(grades);
+  const projected = Number.isFinite(avg)
+    ? ((avg * grades.length) + Number(target || 0)) / (grades.length + 1 || 1)
+    : Number(target || 0);
+
+  return (
+    <Card>
+      <CardHeader title="Parcours & simulateur de moyenne" />
+      <div className="grid-2">
+        <div className="ui-card compact">
+          <div className="item-title">Progression crédits</div>
+          <div className="item-subtitle" style={{ marginTop: 8 }}>
+            Acquis: <strong>{acquiredCredits}</strong> / {totalCredits || 0}
+          </div>
+          <div className="item-subtitle" style={{ marginTop: 6 }}>
+            Restants: <strong>{Math.max((totalCredits || 0) - acquiredCredits, 0)}</strong>
+          </div>
+        </div>
+        <div className="ui-card compact">
+          <div className="item-title">Simulateur de moyenne</div>
+          <div className="item-subtitle" style={{ marginTop: 8 }}>
+            Moyenne actuelle (estimée): <strong>{avg.toFixed(2)}/20</strong>
+          </div>
+          <div className="item-subtitle" style={{ marginTop: 8 }}>Prochaine note simulée (sur 20):</div>
+          <input
+            type="number"
+            min="0"
+            max="20"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            style={{ marginTop: 6, width: 90 }}
+          />
+          <div className="item-subtitle" style={{ marginTop: 8 }}>
+            Nouvelle moyenne projetée: <strong>{projected.toFixed(2)}/20</strong>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function computeCurrentAverage(grades) {
+  if (!Array.isArray(grades) || grades.length === 0) return 0;
+  const normalized = grades.map((g) => {
+    const value = Number(g?.value ?? g?.grade ?? 0);
+    const maxValue = Number(g?.max_value ?? g?.max_score ?? 20);
+    return maxValue > 0 ? (value / maxValue) * 20 : 0;
+  });
+  return normalized.reduce((sum, v) => sum + v, 0) / normalized.length;
 }

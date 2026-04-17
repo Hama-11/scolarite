@@ -17,15 +17,33 @@
 
 ## Phase 2 - Portails metier
 
-- Etudiant: dashboard, parcours, simulateur moyenne, demandes + PJ, paiements.
-- Enseignant: contenus, annonces, saisie notes, import CSV, suivi risques.
-- Admin/Scolarite: referentiels, workflow multi-niveaux, operations de masse.
+- Etudiant:
+  - Dashboard personnalise (cours, planning, notes, annonces, notifications).
+  - Parcours academique: credits acquis/restants.
+  - Simulateur de moyenne (projection apres prochaine note).
+  - Demandes + pieces jointes + suivi historique.
+  - Paiements + recus.
+- Enseignant:
+  - Dashboard des cours enseignes, seances, annonces.
+  - Saisie notes + import CSV + suivi devoirs.
+  - Presence par seance avec chargement automatique des etudiants du cours.
+  - Indicateurs risque (devoirs en retard comme signal operationnel initial).
+- Admin/Scolarite:
+  - Referentiels (facultes, departements, filieres, niveaux, semestres, modules, salles).
+  - Workflow multi-niveaux et operations de masse.
+  - Pilotage via espace administrateur et rapports.
 
 ## Phase 3 - Communication, BI, gouvernance
 
-- Messagerie, notifications multi-canal, preferences utilisateur.
-- Dashboards direction + qualite + alertes automatiques.
-- Exports PDF/Excel + API BI externe.
+- Messagerie:
+  - Conversations internes (en place) + extension pieces jointes a finaliser.
+- Notifications multi-canal:
+  - In-app (en place), email/SMS en extension.
+  - Preferences utilisateur (en place).
+- BI:
+  - Dashboards direction + qualite (endpoints disponibles).
+  - Alertes automatiques: regles metier a etendre.
+  - Exports PDF/Excel + API BI externe: progression par increments.
 
 ## Definition of Done par module
 

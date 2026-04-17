@@ -14,6 +14,10 @@ class AssignmentController extends Controller
     public function index(Request $request)
     {
         $query = Assignment::with(['course']);
+
+        $perPage = (int) $request->get('per_page', 15);
+        if ($perPage < 1) $perPage = 15;
+        if ($perPage > 200) $perPage = 200;
         
         if ($request->has('course_id')) {
             $query->where('course_id', $request->course_id);
@@ -23,7 +27,7 @@ class AssignmentController extends Controller
             $query->where('is_active', $request->boolean('is_active'));
         }
         
-        $assignments = $query->orderBy('due_date')->paginate(15);
+        $assignments = $query->orderBy('due_date')->paginate($perPage);
         
         return response()->json($assignments);
     }
