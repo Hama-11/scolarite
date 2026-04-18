@@ -8,12 +8,19 @@ return [
     ],
 
     'aliases' => [
-        // Compatibilité si d’anciennes chaînes circulent encore côté client ou logs.
+        // Compatibilité : noms hérités / francisés / RBAC étendu → 3 rôles canoniques (etudiant, enseignant, admin).
         'student' => 'etudiant',
         'professor' => 'enseignant',
         'professeur' => 'enseignant',
         'étudiant' => 'etudiant',
         'administrator' => 'admin',
+        'super_admin' => 'admin',
+        'admin_scolarite' => 'admin',
+        'adminscolarite' => 'admin',
+        'chef_departement' => 'admin',
+        'chefdepartement' => 'admin',
+        'finance' => 'admin',
+        'support' => 'admin',
     ],
 
     'permissions' => [

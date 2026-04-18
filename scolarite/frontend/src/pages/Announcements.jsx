@@ -2,14 +2,16 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import AppLayout from '../components/AppLayout';
 import { Card, CardHeader, Badge, Button, Spinner, Modal, Textarea, Input, Select, Alert } from '../components/ui';
-import { announcementService } from '../services/api';
+import { announcementService, courseService } from '../services/api';
 import '../components/dashboard.css';
 
 export default function Announcements() {
   const { isAdmin, isProfessor, isStudent } = useAuth();
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [courses, setCourses] = useState([]);
   const [error, setError] = useState(null);
+  const [selectedCourse, setSelectedCourse] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
@@ -25,22 +27,47 @@ export default function Announcements() {
 
   useEffect(() => {
     fetchAnnouncements();
-  }, []);
+    fetchCourses();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    fetchAnnouncements();
+  }, [selectedCourse]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchAnnouncements = async () => {
     try {
       setLoading(true);
       const response = isStudent()
         ? await announcementService.getMyAnnouncements()
-        : await announcementService.getAll({ per_page: 100 });
+        : await announcementService.getAll({ per_page: 100, course_id: selectedCourse || undefined });
       const payload = response.data;
       const list = Array.isArray(payload) ? payload : (payload?.data || []);
-      setAnnouncements(list);
+      const filtered = selectedCourse
+        ? list.filter((a) => String(a.course_id || a.course?.id || '') === String(selectedCourse))
+        : list;
+      setAnnouncements(filtered);
     } catch (err) {
       console.error("Erreur chargement annonces:", err);
       setError("Impossible de charger les annonces");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCourses = async () => {
+    try {
+      let response;
+      if (isAdmin()) {
+        response = await courseService.getAll({ per_page: 200 });
+      } else if (isProfessor()) {
+        response = await courseService.getProfessorCourses();
+      } else {
+        response = await courseService.getMyCourses();
+      }
+      const payload = response.data;
+      setCourses(Array.isArray(payload) ? payload : (payload?.data || []));
+    } catch {
+      setCourses([]);
     }
   };
 
@@ -122,11 +149,18 @@ export default function Announcements() {
             <h2>Annonces</h2>
             <p>Consultez les dernières annonces de vos professeurs et administrateurs.</p>
           </div>
-          {canCreate && (
-            <Button onClick={() => setShowModal(true)}>
-              + Nouvelle annonce
-            </Button>
-          )}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <Select
+              value={selectedCourse}
+              onChange={(e) => setSelectedCourse(e.target.value)}
+              options={[{ value: '', label: 'Tous les cours' }, ...courses.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` }))]}
+            />
+            {canCreate && (
+              <Button onClick={() => setShowModal(true)}>
+                + Nouvelle annonce
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -215,6 +249,19 @@ export default function Announcements() {
                   { value: 'normal', label: 'Normale' },
                   { value: 'high', label: 'Haute' },
                   { value: 'urgent', label: 'Urgente' }
+                ]}
+              />
+
+              <Select
+                label="Cours ciblé"
+                value={formData.course_id}
+                onChange={(e) => setFormData({ ...formData, course_id: e.target.value })}
+                options={[
+                  { value: '', label: 'Annonce globale' },
+                  ...courses.map((course) => ({
+                    value: String(course.id),
+                    label: `${course.name} (${course.code})`,
+                  })),
                 ]}
               />
 

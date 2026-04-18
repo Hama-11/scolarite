@@ -12,6 +12,8 @@ class Document extends Model
 
     protected $fillable = [
         'course_id',
+        'group_id',
+        'schedule_id',
         'uploader_id',
         'title',
         'file_path',
@@ -35,5 +37,15 @@ class Document extends Model
     public function uploader(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploader_id');
+    }
+
+    public function group(): BelongsTo
+    {
+        return $this->belongsTo(Group::class);
+    }
+
+    public function schedule(): BelongsTo
+    {
+        return $this->belongsTo(Schedule::class);
     }
 }

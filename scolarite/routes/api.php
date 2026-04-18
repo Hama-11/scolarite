@@ -206,7 +206,9 @@ Route::middleware(['auth:sanctum', 'permission:attendance.read'])->group(functio
 Route::middleware(['auth:sanctum', 'permission:messages.read'])->group(function () {
     Route::apiResource('messages', MessageController::class);
     Route::get('/messages/conversation/{userId}', [MessageController::class, 'conversation']);
+    Route::get('/messages/course/{course}', [MessageController::class, 'courseThread']);
     Route::get('/messages/unread', [MessageController::class, 'unreadCount']);
+    Route::post('/messages/course/{course}', [MessageController::class, 'postCourseMessage'])->middleware('permission:messages.create');
 });
 
 // ============================================

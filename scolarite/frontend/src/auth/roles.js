@@ -17,6 +17,13 @@ const ALIASES = {
   enseignant: ROLE.ENSEIGNANT,
   administrator: ROLE.ADMIN,
   admin: ROLE.ADMIN,
+  super_admin: ROLE.ADMIN,
+  admin_scolarite: ROLE.ADMIN,
+  adminscolarite: ROLE.ADMIN,
+  chef_departement: ROLE.ADMIN,
+  chefdepartement: ROLE.ADMIN,
+  finance: ROLE.ADMIN,
+  support: ROLE.ADMIN,
 };
 
 /**
@@ -28,7 +35,9 @@ export function getCanonicalRole(user) {
   const raw = typeof user.role === "string" ? user.role : user.role?.name;
   if (raw == null || raw === "") return null;
   const key = String(raw).toLowerCase().trim();
-  return ALIASES[key] ?? (["etudiant", "enseignant", "admin"].includes(key) ? key : null);
+  if (ALIASES[key]) return ALIASES[key];
+  if (["etudiant", "enseignant", "admin"].includes(key)) return key;
+  return null;
 }
 
 export function roleLabel(canonical) {
@@ -57,5 +66,7 @@ export function defaultPathForRole(canonical) {
 export function normalizeRoleName(role) {
   if (role == null || role === "") return null;
   const k = String(role).toLowerCase().trim();
-  return ALIASES[k] ?? (["etudiant", "enseignant", "admin"].includes(k) ? k : null);
+  if (ALIASES[k]) return ALIASES[k];
+  if (["etudiant", "enseignant", "admin"].includes(k)) return k;
+  return null;
 }

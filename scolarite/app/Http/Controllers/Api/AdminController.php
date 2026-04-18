@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Course;
 use App\Models\Department;
 use App\Models\Program;
 use App\Models\Room;
@@ -344,16 +345,22 @@ class AdminController extends Controller
         $departments = Department::count();
         $programs = Program::count();
         $rooms = Room::count();
-        
+        $courses = Course::count();
+
         $currentYear = AcademicYear::where('is_current', true)->first();
-        
+
         return response()->json([
             'students' => $students,
             'professors' => $professors,
             'departments' => $departments,
             'programs' => $programs,
             'rooms' => $rooms,
-            'current_academic_year' => $currentYear,
+            'courses' => $courses,
+            'current_academic_year' => $currentYear ? [
+                'id' => $currentYear->id,
+                'name' => $currentYear->name,
+                'is_current' => (bool) $currentYear->is_current,
+            ] : null,
         ]);
     }
 }

@@ -43,7 +43,10 @@ export default function Reports() {
 
   const stats = dash?.stats || {};
   const sessionTypes = dash?.session_types || {};
-  const recentGroups = Array.isArray(dash?.recent_groups) ? dash.recent_groups : [];
+  const recentGroups = useMemo(
+    () => (Array.isArray(dash?.recent_groups) ? dash.recent_groups : []),
+    [dash?.recent_groups]
+  );
   const recentActivity = Array.isArray(dash?.recent_activity) ? dash.recent_activity : [];
 
   const deptRollup = useMemo(() => {

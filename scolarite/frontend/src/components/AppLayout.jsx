@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getCanonicalRole, roleLabel } from "../auth/roles";
 import Sidebar from "./Sidebar";
 import "./dashboard.css";
 import { notificationService } from "../services/api";
@@ -135,7 +136,9 @@ export default function AppLayout({ children, title = "Tableau de bord" }) {
               </div>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1 }}>{me.name}</div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{me.role || "user"}</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  {roleLabel(getCanonicalRole(me))}
+                </div>
               </div>
             </div>
           )}

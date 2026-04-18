@@ -2,7 +2,7 @@
 import { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { api } from '../api/axios';
 import { setAuth, clearAuth, getUser, isAuthed } from '../auth/auth';
-import { getCanonicalRole, normalizeRoleName } from '../auth/roles';
+import { getCanonicalRole, normalizeRoleName, ROLE } from '../auth/roles';
 
 const AuthContext = createContext(null);
 
@@ -139,9 +139,9 @@ export function AuthProvider({ children }) {
     return normalizeRoleName(role) === current;
   };
 
-  const isAdmin = () => canonicalRole === 'admin';
-  const isProfessor = () => canonicalRole === 'enseignant';
-  const isStudent = () => canonicalRole === 'etudiant';
+  const isAdmin = () => canonicalRole === ROLE.ADMIN;
+  const isProfessor = () => canonicalRole === ROLE.ENSEIGNANT;
+  const isStudent = () => canonicalRole === ROLE.ETUDIANT;
 
   const value = {
     user,

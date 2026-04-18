@@ -23,110 +23,122 @@ class StatisticsController extends Controller
     public function getDashboard()
     {
         $cacheKey = 'dashboard_stats_' . date('Y-m-d-H');
-        $cacheDuration = 60; // Cache for 1 hour
+        $cacheDuration = 60;
 
-        return Cache::remember($cacheKey, $cacheDuration, function () {
-            // Get counts from database - optimized single queries
-            $activeGroups = Group::where('status', 'active')->count();
-            $professors = Professor::count();
-            $students = Student::count();
-
-            // Sessions this month
-            $startOfMonth = Carbon::now()->startOfMonth();
-            $endOfMonth = Carbon::now()->endOfMonth();
-            $sessionsThisMonth = TutoringSession::whereBetween('scheduled_at', [$startOfMonth, $endOfMonth])->count();
-
-            // Pending requests
-            $pendingRequests = TutoringRequest::where('status', 'pending')->count();
-
-            // Attendance rate - use actual data
-            $totalSessions = TutoringSession::where('status', 'completed')->count();
-            $completedAttendances = \App\Models\Attendance::whereNotNull('present')->count();
-            $attendanceRate = $totalSessions > 0 ? round(($completedAttendances / max($totalSessions, 1)) * 100) : 0;
-
-            // Sessions by month - single query with group by
-            $sessionsByMonth = TutoringSession::selectRaw('MONTH(scheduled_at) as month, COUNT(*) as count')
-                ->whereYear('scheduled_at', Carbon::now()->year)
-                ->groupBy('month')
-                ->pluck('count', 'month')
-                ->toArray();
-
-            $monthData = [];
-            for ($month = 1; $month <= 12; $month++) {
-                $monthData[] = $sessionsByMonth[$month] ?? 0;
-            }
-
-            // Session types - single query
-            $sessionTypesQuery = TutoringSession::where('status', 'completed')
-                ->selectRaw("SUM(CASE WHEN type = 'presential' THEN 1 ELSE 0 END) as presential")
-                ->selectRaw("SUM(CASE WHEN type = 'online' THEN 1 ELSE 0 END) as online")
-                ->selectRaw("SUM(CASE WHEN type = 'mixed' THEN 1 ELSE 0 END) as mixed")
-                ->selectRaw('COUNT(*) as total')
-                ->first();
-
-            $total = $sessionTypesQuery->total ?: 1;
-            $sessionTypes = [
-                'presential' => $total > 0 ? round(($sessionTypesQuery->presential / $total) * 100) : 0,
-                'online' => $total > 0 ? round(($sessionTypesQuery->online / $total) * 100) : 0,
-                'mixed' => $total > 0 ? round(($sessionTypesQuery->mixed / $total) * 100) : 0,
-                'total' => $sessionTypesQuery->total ?: 0,
-            ];
-
-            // Recent groups - optimized with join for student count
-            $recentGroups = Group::select('groups.*')
-                ->with('professor.user')
-                ->leftJoin('tutoring_requests', function ($join) {
-                    $join->on('groups.id', '=', 'tutoring_requests.group_id')
-                        ->where('tutoring_requests.status', '=', 'approved');
-                })
-                ->orderBy('groups.created_at', 'desc')
-                ->limit(5)
-                ->get()
-                ->map(function ($group) {
-                    return [
-                        'name' => $group->name,
-                        'dept' => $group->departement,
-                        'tutor' => $group->professor->user->name ?? 'N/A',
-                        'students' => $group->student_count ?? 0,
-                        'max' => $group->max_students,
-                        'status' => $group->status,
-                    ];
-                });
-
-            // Pending requests - optimized query
-            $pendingRequestsList = TutoringRequest::with(['student.user', 'group'])
-                ->where('status', 'pending')
-                ->orderBy('created_at', 'desc')
-                ->limit(10)
-                ->get()
-                ->map(function ($request) {
-                    return [
-                        'name' => $request->student->user->name ?? 'N/A',
-                        'group' => $request->group->name ?? 'N/A',
-                        'date' => $request->created_at->format('d/m/Y'),
-                        'status' => $request->status,
-                    ];
-                });
-
-            // Recent activity - optimized single query
-            $recentActivity = $this->fetchRecentActivity();
-
-            return response()->json([
-                'stats' => [
-                    'active_groups' => $activeGroups,
-                    'professors' => $professors,
-                    'students' => $students,
-                    'sessions_this_month' => $sessionsThisMonth,
-                    'pending_requests' => $pendingRequests,
-                    'attendance_rate' => $attendanceRate,
-                ],
-                'sessions_by_month' => $monthData,
-                'session_types' => $sessionTypes,
-                'recent_groups' => $recentGroups,
-                'pending_requests_list' => $pendingRequestsList,
-                'recent_activity' => $recentActivity,
-            ]);
+        $data = Cache::remember($cacheKey, $cacheDuration, function () {
+            return $this->compileDashboardPayload();
         });
+
+        return response()->json($data);
+    }
+
+    /**
+     * Données du dashboard (tableau sérialisable — ne pas mettre de Response dans le cache).
+     */
+    private function compileDashboardPayload(): array
+    {
+        $activeGroups = Group::where('status', 'active')->count();
+        $professors = Professor::count();
+        $students = Student::count();
+
+        $startOfMonth = Carbon::now()->startOfMonth();
+        $endOfMonth = Carbon::now()->endOfMonth();
+        $sessionsThisMonth = TutoringSession::whereBetween('scheduled_at', [$startOfMonth, $endOfMonth])->count();
+
+        $pendingRequests = TutoringRequest::where('status', 'pending')->count();
+
+        $attendanceTotal = \App\Models\Attendance::count();
+        $attendancePresent = \App\Models\Attendance::where('status', 'present')->count();
+        $attendanceRate = $attendanceTotal > 0
+            ? (int) round(($attendancePresent / max($attendanceTotal, 1)) * 100)
+            : 0;
+
+        $sessionsByMonth = TutoringSession::selectRaw('MONTH(scheduled_at) as month, COUNT(*) as count')
+            ->whereYear('scheduled_at', Carbon::now()->year)
+            ->groupBy('month')
+            ->pluck('count', 'month')
+            ->toArray();
+
+        $monthData = [];
+        for ($month = 1; $month <= 12; $month++) {
+            $monthData[] = $sessionsByMonth[$month] ?? 0;
+        }
+
+        $sessionTypesQuery = TutoringSession::where('status', 'completed')
+            ->selectRaw("SUM(CASE WHEN type = 'presential' THEN 1 ELSE 0 END) as presential")
+            ->selectRaw("SUM(CASE WHEN type = 'online' THEN 1 ELSE 0 END) as online")
+            ->selectRaw("SUM(CASE WHEN type = 'mixed' THEN 1 ELSE 0 END) as mixed")
+            ->selectRaw('COUNT(*) as total')
+            ->first();
+
+        $totalTyped = (int) ($sessionTypesQuery->total ?? 0);
+        if (!$sessionTypesQuery || $totalTyped === 0) {
+            $sessionTypes = [
+                'presential' => 0,
+                'online' => 0,
+                'mixed' => 0,
+                'total' => 0,
+            ];
+        } else {
+            $sessionTypes = [
+                'presential' => (int) round((($sessionTypesQuery->presential ?? 0) / $totalTyped) * 100),
+                'online' => (int) round((($sessionTypesQuery->online ?? 0) / $totalTyped) * 100),
+                'mixed' => (int) round((($sessionTypesQuery->mixed ?? 0) / $totalTyped) * 100),
+                'total' => $totalTyped,
+            ];
+        }
+
+        $recentGroups = Group::select('groups.*')
+            ->with('professor.user')
+            ->leftJoin('tutoring_requests', function ($join) {
+                $join->on('groups.id', '=', 'tutoring_requests.group_id')
+                    ->where('tutoring_requests.status', '=', 'approved');
+            })
+            ->orderBy('groups.created_at', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(function ($group) {
+                return [
+                    'name' => $group->name,
+                    'dept' => $group->departement,
+                    'tutor' => optional(optional($group->professor)->user)->name ?? 'N/A',
+                    'students' => $group->student_count ?? 0,
+                    'max' => $group->max_students,
+                    'status' => $group->status,
+                ];
+            });
+
+        $pendingRequestsList = TutoringRequest::with(['student.user', 'group'])
+            ->where('status', 'pending')
+            ->orderBy('created_at', 'desc')
+            ->limit(10)
+            ->get()
+            ->map(function ($request) {
+                return [
+                    'name' => optional(optional($request->student)->user)->name ?? 'N/A',
+                    'group' => optional($request->group)->name ?? 'N/A',
+                    'date' => $request->created_at->format('d/m/Y'),
+                    'status' => $request->status,
+                ];
+            });
+
+        $recentActivity = $this->fetchRecentActivity();
+
+        return [
+            'stats' => [
+                'active_groups' => $activeGroups,
+                'professors' => $professors,
+                'students' => $students,
+                'sessions_this_month' => $sessionsThisMonth,
+                'pending_requests' => $pendingRequests,
+                'attendance_rate' => $attendanceRate,
+            ],
+            'sessions_by_month' => $monthData,
+            'session_types' => $sessionTypes,
+            'recent_groups' => $recentGroups,
+            'pending_requests_list' => $pendingRequestsList,
+            'recent_activity' => $recentActivity,
+        ];
     }
 
     /**
@@ -155,7 +167,7 @@ class StatisticsController extends Controller
             ->get();
 
         foreach ($recentRequests as $request) {
-            $studentName = optional($request->student->user)->name ?? 'N/A';
+            $studentName = optional(optional($request->student)->user)->name ?? 'N/A';
             if ($request->status === 'approved') {
                 $activities[] = [
                     'icon' => '✅',
@@ -185,19 +197,20 @@ class StatisticsController extends Controller
     {
         $cacheKey = 'groups_list';
         
-        return Cache::remember($cacheKey, 300, function () {
-            $groups = Group::with('professor.user')
+        $data = Cache::remember($cacheKey, 300, function () {
+            return Group::with('professor.user')
                 ->get()
                 ->map(function ($group) {
                     $studentCount = TutoringRequest::where('group_id', $group->id)
                         ->where('status', 'approved')
                         ->count();
+
                     return [
                         'id' => $group->id,
                         'name' => $group->name,
                         'dept' => $group->departement,
-                        'tutor' => $group->professor->user->name ?? 'N/A',
-                        'tutor_id' => $group->professor->id ?? null,
+                        'tutor' => optional(optional($group->professor)->user)->name ?? 'N/A',
+                        'tutor_id' => optional($group->professor)->id,
                         'students' => $studentCount,
                         'max' => $group->max_students,
                         'type' => 'presentiel',
@@ -205,28 +218,28 @@ class StatisticsController extends Controller
                         'created' => $group->created_at->format('d/m/Y'),
                     ];
                 });
-            
-            return response()->json($groups);
         });
+
+        return response()->json($data);
     }
 
     public function getProfessors()
     {
         $cacheKey = 'professors_list';
-        
-        return Cache::remember($cacheKey, 300, function () {
-            $professors = Professor::with('user')
+
+        $data = Cache::remember($cacheKey, 300, function () {
+            return Professor::with('user')
                 ->get()
                 ->map(function ($prof) {
                     return [
                         'id' => $prof->id,
-                        'name' => $prof->user->name ?? 'N/A',
+                        'name' => optional($prof->user)->name ?? 'N/A',
                         'specialite' => $prof->specialite,
                     ];
                 });
-            
-            return response()->json($professors);
         });
+
+        return response()->json($data);
     }
 
     public function createGroup(Request $request)
@@ -330,7 +343,7 @@ class StatisticsController extends Controller
         $slaRate = $totalResolved > 0 ? round(($resolvedWithinSla / $totalResolved) * 100, 2) : 0.0;
 
         $attendanceTotal = \App\Models\Attendance::count();
-        $attendancePresent = \App\Models\Attendance::where('present', true)->count();
+        $attendancePresent = \App\Models\Attendance::where('status', 'present')->count();
         $attendanceRate = $attendanceTotal > 0 ? round(($attendancePresent / $attendanceTotal) * 100, 2) : 0.0;
 
         return response()->json([
@@ -354,58 +367,64 @@ class StatisticsController extends Controller
     public function getStats()
     {
         $cacheKey = 'stats_summary';
-        
-        return Cache::remember($cacheKey, 300, function () {
+
+        $data = Cache::remember($cacheKey, 300, function () {
             $activeGroups = Group::where('status', 'active')->count();
             $professors = Professor::count();
             $students = Student::count();
-            
+
             $startOfMonth = Carbon::now()->startOfMonth();
             $endOfMonth = Carbon::now()->endOfMonth();
             $sessionsThisMonth = TutoringSession::whereBetween('scheduled_at', [$startOfMonth, $endOfMonth])->count();
-            
+
             $pendingRequests = TutoringRequest::where('status', 'pending')->count();
-            
-            $totalSessions = TutoringSession::where('status', 'completed')->count();
-            $completedAttendances = \App\Models\Attendance::whereNotNull('present')->count();
-            $attendanceRate = $totalSessions > 0 ? round(($completedAttendances / max($totalSessions, 1)) * 100) : 0;
-            
-            return response()->json([
+
+            $attendanceTotal = \App\Models\Attendance::count();
+            $attendancePresent = \App\Models\Attendance::where('status', 'present')->count();
+            $attendanceRate = $attendanceTotal > 0
+                ? (int) round(($attendancePresent / max($attendanceTotal, 1)) * 100)
+                : 0;
+
+            return [
                 'active_groups' => $activeGroups,
                 'professors' => $professors,
                 'students' => $students,
                 'sessions_this_month' => $sessionsThisMonth,
                 'pending_requests' => $pendingRequests,
                 'attendance_rate' => $attendanceRate,
-            ]);
+            ];
         });
+
+        return response()->json($data);
     }
 
     public function getSessionsByMonth()
     {
         $cacheKey = 'sessions_by_month_' . date('Y-m');
-        
-        return Cache::remember($cacheKey, 3600, function () {
+
+        $monthData = Cache::remember($cacheKey, 3600, function () {
             $sessionsByMonth = TutoringSession::selectRaw('MONTH(scheduled_at) as month, COUNT(*) as count')
                 ->whereYear('scheduled_at', Carbon::now()->year)
                 ->groupBy('month')
                 ->pluck('count', 'month')
                 ->toArray();
 
-            $monthData = [];
+            $out = [];
             for ($month = 1; $month <= 12; $month++) {
-                $monthData[] = $sessionsByMonth[$month] ?? 0;
+                $out[] = $sessionsByMonth[$month] ?? 0;
             }
-            
-            return response()->json($monthData);
+
+            return $out;
         });
+
+        return response()->json($monthData);
     }
 
     public function getSessionTypes()
     {
         $cacheKey = 'session_types';
-        
-        return Cache::remember($cacheKey, 3600, function () {
+
+        $data = Cache::remember($cacheKey, 3600, function () {
             $sessionTypesQuery = TutoringSession::where('status', 'completed')
                 ->selectRaw("SUM(CASE WHEN type = 'presential' THEN 1 ELSE 0 END) as presential")
                 ->selectRaw("SUM(CASE WHEN type = 'online' THEN 1 ELSE 0 END) as online")
@@ -413,23 +432,34 @@ class StatisticsController extends Controller
                 ->selectRaw('COUNT(*) as total')
                 ->first();
 
-            $total = $sessionTypesQuery->total ?: 1;
-            
-            return response()->json([
-                'presential' => $total > 0 ? round(($sessionTypesQuery->presential / $total) * 100) : 0,
-                'online' => $total > 0 ? round(($sessionTypesQuery->online / $total) * 100) : 0,
-                'mixed' => $total > 0 ? round(($sessionTypesQuery->mixed / $total) * 100) : 0,
-                'total' => $sessionTypesQuery->total ?: 0,
-            ]);
+            if (!$sessionTypesQuery || (int) ($sessionTypesQuery->total ?? 0) === 0) {
+                return [
+                    'presential' => 0,
+                    'online' => 0,
+                    'mixed' => 0,
+                    'total' => 0,
+                ];
+            }
+
+            $total = (int) $sessionTypesQuery->total;
+
+            return [
+                'presential' => (int) round((($sessionTypesQuery->presential ?? 0) / max($total, 1)) * 100),
+                'online' => (int) round((($sessionTypesQuery->online ?? 0) / max($total, 1)) * 100),
+                'mixed' => (int) round((($sessionTypesQuery->mixed ?? 0) / max($total, 1)) * 100),
+                'total' => $total,
+            ];
         });
+
+        return response()->json($data);
     }
 
     public function getRecentGroups()
     {
         $cacheKey = 'recent_groups';
-        
-        return Cache::remember($cacheKey, 300, function () {
-            $groups = Group::with('professor.user')
+
+        $data = Cache::remember($cacheKey, 300, function () {
+            return Group::with('professor.user')
                 ->orderBy('created_at', 'desc')
                 ->limit(5)
                 ->get()
@@ -437,50 +467,53 @@ class StatisticsController extends Controller
                     $studentCount = TutoringRequest::where('group_id', $group->id)
                         ->where('status', 'approved')
                         ->count();
+
                     return [
                         'name' => $group->name,
                         'dept' => $group->departement,
-                        'tutor' => $group->professor->user->name ?? 'N/A',
+                        'tutor' => optional(optional($group->professor)->user)->name ?? 'N/A',
                         'students' => $studentCount,
                         'max' => $group->max_students,
                         'status' => $group->status,
                     ];
                 });
-            
-            return response()->json($groups);
         });
+
+        return response()->json($data);
     }
 
     public function getPendingRequests()
     {
         $cacheKey = 'pending_requests';
-        
-        return Cache::remember($cacheKey, 120, function () {
-            $requests = TutoringRequest::with(['student.user', 'group'])
+
+        $data = Cache::remember($cacheKey, 120, function () {
+            return TutoringRequest::with(['student.user', 'group'])
                 ->where('status', 'pending')
                 ->orderBy('created_at', 'desc')
                 ->limit(10)
                 ->get()
                 ->map(function ($request) {
                     return [
-                        'name' => $request->student->user->name ?? 'N/A',
-                        'group' => $request->group->name ?? 'N/A',
+                        'name' => optional(optional($request->student)->user)->name ?? 'N/A',
+                        'group' => optional($request->group)->name ?? 'N/A',
                         'date' => $request->created_at->format('d/m/Y'),
                         'status' => $request->status,
                     ];
                 });
-            
-            return response()->json($requests);
         });
+
+        return response()->json($data);
     }
 
     public function getRecentActivity()
     {
         $cacheKey = 'recent_activity';
-        
-        return Cache::remember($cacheKey, 300, function () {
-            return response()->json($this->fetchRecentActivity());
+
+        $data = Cache::remember($cacheKey, 300, function () {
+            return $this->fetchRecentActivity();
         });
+
+        return response()->json($data);
     }
 
     /**

@@ -64,11 +64,13 @@ export const documentService = {
   create: (data) => api.post('/documents', data, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
-  update: (id, data) => api.put(`/documents/${id}`, data),
+  update: (id, data) => api.post(`/documents/${id}`, data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
   delete: (id) => api.delete(`/documents/${id}`),
   getByCourse: (courseId) => api.get(`/documents/course/${courseId}`),
   download: (documentId) => api.get(`/documents/download/${documentId}`, { responseType: 'blob' }),
-  getMyDocuments: () => api.get('/my/documents'),
+  getMyDocuments: (params) => api.get('/my/documents', { params }),
 };
 
 // Attendance API Service
@@ -91,6 +93,8 @@ export const messageService = {
   create: (data) => api.post('/messages', data),
   delete: (id) => api.delete(`/messages/${id}`),
   getConversation: (userId) => api.get(`/messages/conversation/${userId}`),
+  getCourseThread: (courseId, params) => api.get(`/messages/course/${courseId}`, { params }),
+  postCourseMessage: (courseId, data) => api.post(`/messages/course/${courseId}`, data),
   getUnreadCount: () => api.get('/messages/unread'),
 };
 

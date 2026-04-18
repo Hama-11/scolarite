@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\CourseMessagePosted;
 use App\Http\Controllers\Controller;
+use App\Models\Course;
+use App\Models\CourseEnrollment;
 use App\Models\Message;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -28,6 +31,24 @@ class MessageController extends Controller
         return response()->json($messages);
     }
 
+    public function conversation($userId)
+    {
+        $user = Auth::user();
+        $messages = Message::with(['sender', 'receiver', 'course'])
+            ->where('type', 'direct')
+            ->where(function ($q) use ($user, $userId) {
+                $q->where(function ($q2) use ($user, $userId) {
+                    $q2->where('sender_id', $user->id)->where('receiver_id', $userId);
+                })->orWhere(function ($q2) use ($user, $userId) {
+                    $q2->where('sender_id', $userId)->where('receiver_id', $user->id);
+                });
+            })
+            ->orderBy('created_at', 'asc')
+            ->paginate(30);
+
+        return response()->json($messages);
+    }
+
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -48,6 +69,53 @@ class MessageController extends Controller
         ]);
         
         return response()->json($message->load(['sender', 'receiver', 'course']), 201);
+    }
+
+    public function courseThread(Request $request, Course $course)
+    {
+        $user = Auth::user();
+        if (!$this->canAccessCourse($user->id, $course->id)) {
+            return response()->json(['message' => 'Unauthorized course access'], 403);
+        }
+
+        $perPage = (int) $request->get('per_page', 30);
+        if ($perPage < 1) $perPage = 30;
+        if ($perPage > 100) $perPage = 100;
+
+        $messages = Message::with(['sender', 'course'])
+            ->where('type', 'course')
+            ->where('course_id', $course->id)
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+
+        return response()->json($messages);
+    }
+
+    public function postCourseMessage(Request $request, Course $course)
+    {
+        $user = Auth::user();
+        if (!$this->canAccessCourse($user->id, $course->id)) {
+            return response()->json(['message' => 'Unauthorized course access'], 403);
+        }
+
+        $validated = $request->validate([
+            'body' => 'required|string|max:4000',
+            'subject' => 'nullable|string|max:255',
+        ]);
+
+        $message = Message::create([
+            'sender_id' => $user->id,
+            'receiver_id' => null,
+            'course_id' => $course->id,
+            'subject' => $validated['subject'] ?? ('Discussion ' . $course->name),
+            'body' => $validated['body'],
+            'type' => 'course',
+        ]);
+
+        $message->load('sender', 'course');
+        event(new CourseMessagePosted($message));
+
+        return response()->json($message->load(['sender', 'course']), 201);
     }
 
     public function show(Message $message)
@@ -97,5 +165,33 @@ class MessageController extends Controller
             ->count();
         
         return response()->json(['unread_count' => $count]);
+    }
+
+    private function canAccessCourse(int $userId, int $courseId): bool
+    {
+        $user = Auth::user();
+        if ($user && $user->isAdministrator()) {
+            return true;
+        }
+
+        $isProfessorOnCourse = Course::where('id', $courseId)
+            ->whereHas('professor.user', function ($q) use ($userId) {
+                $q->where('id', $userId);
+            })
+            ->exists();
+
+        if ($isProfessorOnCourse) {
+            return true;
+        }
+
+        $studentId = optional($user->student)->id;
+        if (!$studentId) {
+            return false;
+        }
+
+        return CourseEnrollment::where('student_id', $studentId)
+            ->where('course_id', $courseId)
+            ->where('status', 'active')
+            ->exists();
     }
 }

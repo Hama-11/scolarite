@@ -61,6 +61,16 @@ const navConfig = {
       ],
     },
   ],
+  /** Rôle non reconnu (données obsolètes) : éviter d’afficher le menu étudiant par défaut. */
+  unknown: [
+    {
+      section: "Compte",
+      items: [
+        { icon: "👤", label: "Mon profil", path: "/profile" },
+        { icon: "⚙️", label: "Paramètres", path: "/settings" },
+      ],
+    },
+  ],
   student: [
     {
       section: "Principal",
@@ -97,11 +107,11 @@ const navConfig = {
 
 export default function Sidebar({ user }) {
   const location = useLocation();
-  const canonical = getCanonicalRole(user) || "etudiant";
-  const navRole = sidebarNavKey(canonical);
-  const sections = navConfig[navRole] || navConfig.student;
+  const canonical = getCanonicalRole(user);
+  const navRole = canonical ? sidebarNavKey(canonical) : "unknown";
+  const sections = navConfig[navRole] || navConfig.unknown;
   const initials = user?.name ? user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : "U";
-  const label = roleLabel(canonical);
+  const label = canonical ? roleLabel(canonical) : "Rôle à mettre à jour";
 
   return (
     <aside className="sidebar">

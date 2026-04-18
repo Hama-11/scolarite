@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AppLayout from "../components/AppLayout";
-import { Card, CardHeader, Badge, Button, Alert } from "../components/ui";
+import { Card, CardHeader, Badge, Button, Alert, Spinner } from "../components/ui";
 import { adminService, statisticsService } from "../services/api";
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [statsWarning, setStatsWarning] = useState("");
   const [stats, setStats] = useState({
     students: 0,
     professors: 0,
     departments: 0,
     programs: 0,
+    rooms: 0,
+    courses: 0,
     pending_requests: 0,
+    yearName: null,
   });
   const [recentActivity, setRecentActivity] = useState([]);
 
@@ -21,32 +25,53 @@ export default function AdminDashboard() {
     async function load() {
       setLoading(true);
       setError("");
-      try {
-        const [adminStatsRes, dashboardRes] = await Promise.all([
-          adminService.getDashboardStats(),
-          statisticsService.getDashboard(),
-        ]);
+      setStatsWarning("");
 
-        if (!mounted) return;
+      const results = await Promise.allSettled([
+        adminService.getDashboardStats(),
+        statisticsService.getDashboard(),
+      ]);
 
-        const adminStats = adminStatsRes?.data || {};
-        const dash = dashboardRes?.data || {};
-        const pending = Number(dash?.stats?.pending_requests ?? 0);
+      if (!mounted) return;
 
-        setStats({
+      const [adminRes, dashRes] = results;
+
+      if (adminRes.status === "fulfilled") {
+        const adminStats = adminRes.value?.data || {};
+        const y = adminStats.current_academic_year;
+        setStats((s) => ({
+          ...s,
           students: Number(adminStats.students ?? 0),
           professors: Number(adminStats.professors ?? 0),
           departments: Number(adminStats.departments ?? 0),
           programs: Number(adminStats.programs ?? 0),
-          pending_requests: Number.isFinite(pending) ? pending : 0,
-        });
-        setRecentActivity(Array.isArray(dash?.recent_activity) ? dash.recent_activity : []);
-      } catch (e) {
-        if (!mounted) return;
-        setError(e?.response?.data?.message || "Impossible de charger l espace administrateur.");
-      } finally {
-        if (mounted) setLoading(false);
+          rooms: Number(adminStats.rooms ?? 0),
+          courses: Number(adminStats.courses ?? 0),
+          yearName: y && typeof y === "object" ? y.name : y || null,
+        }));
+      } else {
+        setError(
+          adminRes.reason?.response?.data?.message ||
+            adminRes.reason?.message ||
+            "Impossible de charger les statistiques principales."
+        );
       }
+
+      if (dashRes.status === "fulfilled") {
+        const dash = dashRes.value?.data || {};
+        const pending = Number(dash?.stats?.pending_requests ?? 0);
+        setStats((s) => ({
+          ...s,
+          pending_requests: Number.isFinite(pending) ? pending : s.pending_requests,
+        }));
+        setRecentActivity(Array.isArray(dash?.recent_activity) ? dash.recent_activity : []);
+      } else {
+        setStatsWarning(
+          "L’activité récente et les demandes agrégées ne sont pas disponibles (erreur secondaire)."
+        );
+      }
+
+      setLoading(false);
     }
     load();
     return () => {
@@ -57,53 +82,98 @@ export default function AdminDashboard() {
   return (
     <AppLayout title="Espace administrateur">
       <div className="page-header">
-        <h2>Espace administrateur</h2>
-        <p>Pilotage global de la plateforme, statistiques et supervision.</p>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 12,
+            alignItems: "baseline",
+            justifyContent: "space-between",
+          }}
+        >
+          <div>
+            <h2>Tableau de bord administrateur</h2>
+            <p style={{ marginTop: 6, color: "var(--text-muted)" }}>
+              Vue d’ensemble de la scolarité, des effectifs et des raccourcis métiers.
+            </p>
+          </div>
+          {stats.yearName ? (
+            <Badge variant="blue">Année active : {stats.yearName}</Badge>
+          ) : (
+            <span className="item-subtitle">Aucune année marquée « courante » en base.</span>
+          )}
+        </div>
       </div>
 
-      {error && (
+      {error ? (
         <Alert variant="error" className="mb-6">
           {error}
         </Alert>
-      )}
+      ) : null}
+      {statsWarning ? (
+        <Alert variant="warning" className="mb-6">
+          {statsWarning}
+        </Alert>
+      ) : null}
 
-      <div className="stats-grid">
-        <StatCard label="Etudiants" value={stats.students} />
-        <StatCard label="Professeurs" value={stats.professors} />
-        <StatCard label="Departements" value={stats.departments} />
-        <StatCard label="Programmes" value={stats.programs} />
-      </div>
-
-      <div className="grid-70-30">
-        <Card>
-          <CardHeader title="Activite recente" />
-          {loading ? (
-            <div className="muted-center">Chargement...</div>
-          ) : recentActivity.length === 0 ? (
-            <div className="muted-center">Aucune activite recente.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 10 }}>
-              {recentActivity.slice(0, 8).map((a, idx) => (
-                <div className="ui-card compact" key={idx}>
-                  <div style={{ fontWeight: 700 }}>{a?.icon ? `${a.icon} ` : ""}{a?.text || "Activite"}</div>
-                  <div className="item-subtitle" style={{ marginTop: 4 }}>{a?.time || ""}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        <Card>
-          <CardHeader title="Actions rapides" />
-          <div style={{ display: "grid", gap: 10 }}>
-            <QuickAction to="/requests" label="Demandes" value={stats.pending_requests} />
-            <QuickAction to="/reports" label="Rapports & statistiques" />
-            <QuickAction to="/students" label="Étudiants" />
-            <QuickAction to="/groups" label="Groupes" />
-            <QuickAction to="/settings" label="Paramètres" />
+      {loading ? (
+        <div className="muted-center" style={{ padding: "48px 0" }}>
+          <Spinner size="lg" />
+          <p className="item-subtitle" style={{ marginTop: 12 }}>
+            Chargement des indicateurs…
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard label="Étudiants" value={stats.students} />
+            <StatCard label="Enseignants" value={stats.professors} />
+            <StatCard label="Départements" value={stats.departments} />
+            <StatCard label="Programmes" value={stats.programs} />
+            <StatCard label="Salles" value={stats.rooms} />
+            <StatCard label="Cours" value={stats.courses} />
           </div>
-        </Card>
-      </div>
+
+          <div className="grid-70-30" style={{ marginTop: 24 }}>
+            <Card>
+              <CardHeader title="Activité récente" subtitle="Derniers événements enregistrés sur la plateforme" />
+              {recentActivity.length === 0 ? (
+                <div className="muted-center">Aucune activité récente à afficher.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {recentActivity.slice(0, 8).map((a, idx) => (
+                    <div className="ui-card compact" key={idx}>
+                      <div style={{ fontWeight: 700 }}>
+                        {a?.icon ? `${a.icon} ` : ""}
+                        {a?.text || "Activité"}
+                      </div>
+                      <div className="item-subtitle" style={{ marginTop: 4 }}>
+                        {a?.time || ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            <Card>
+              <CardHeader title="Actions rapides" subtitle="Accès direct aux espaces admin" />
+              <div style={{ display: "grid", gap: 10 }}>
+                <QuickAction to="/requests" label="Demandes & workflow" value={stats.pending_requests} />
+                <QuickAction to="/admin/academic-core" label="Cœur académique" />
+                <QuickAction to="/admin/student-validation" label="Validation dossiers étudiants" />
+                <QuickAction to="/admin/school-classes" label="Classes scolaires" />
+                <QuickAction to="/admin/official-requests" label="Demandes de documents" />
+                <QuickAction to="/admin/conception-grade-disputes" label="Litiges de notes" />
+                <QuickAction to="/reports" label="Rapports & statistiques" />
+                <QuickAction to="/students" label="Annuaire étudiants" />
+                <QuickAction to="/groups" label="Groupes" />
+                <QuickAction to="/settings" label="Paramètres" />
+              </div>
+            </Card>
+          </div>
+        </>
+      )}
     </AppLayout>
   );
 }
@@ -123,9 +193,13 @@ function QuickAction({ to, label, value }) {
       <div className="item-row" style={{ alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontWeight: 700, color: "var(--ui-text)" }}>{label}</span>
-          {typeof value === "number" ? <Badge variant="warning">{value}</Badge> : null}
+          {typeof value === "number" && value > 0 ? (
+            <Badge variant="warning">{value}</Badge>
+          ) : null}
         </div>
-        <Button size="sm" variant="outline">Ouvrir</Button>
+        <Button size="sm" variant="outline" type="button">
+          Ouvrir
+        </Button>
       </div>
     </Link>
   );
