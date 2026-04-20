@@ -11,6 +11,16 @@ use Illuminate\Support\Facades\Storage;
 
 class AssignmentController extends Controller
 {
+    private function ensureTeachingWriteAccess(Request $request)
+    {
+        $user = $request->user();
+        if ($user && ($user->isAdministrator() || $user->isProfessor())) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Forbidden'], 403);
+    }
+
     public function index(Request $request)
     {
         $query = Assignment::with(['course']);
@@ -34,6 +44,10 @@ class AssignmentController extends Controller
 
     public function store(Request $request)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'course_id' => 'required|exists:courses,id',
             'title' => 'required|string|max:255',
@@ -58,6 +72,10 @@ class AssignmentController extends Controller
 
     public function update(Request $request, Assignment $assignment)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'title' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
@@ -76,6 +94,10 @@ class AssignmentController extends Controller
 
     public function destroy(Assignment $assignment)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $assignment->delete();
         
         return response()->json(['message' => 'Assignment deleted successfully']);
@@ -139,6 +161,10 @@ class AssignmentController extends Controller
 
     public function gradeSubmission(Request $request, AssignmentSubmission $submission)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'score' => 'required|numeric|min:0',
             'feedback' => 'nullable|string',
@@ -169,6 +195,10 @@ class AssignmentController extends Controller
 
     public function submissions(Assignment $assignment)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $rows = AssignmentSubmission::with(['student.user'])
             ->where('assignment_id', $assignment->id)
             ->orderBy('submitted_at', 'desc')

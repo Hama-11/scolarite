@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Professor;
+use App\Models\Role;
 use App\Models\User;
 use App\Models\Course;
 use Illuminate\Http\Request;
@@ -13,6 +14,40 @@ use App\Models\Student;
 
 class ProfessorController extends Controller
 {
+    private function resolveProfessorRoleId(): int
+    {
+        return (int) Role::firstOrCreate([
+            'name' => 'enseignant',
+        ], [
+            'display_name' => 'Enseignant',
+        ])->id;
+    }
+
+    private function normalizeProfessorPayload(array $validated): array
+    {
+        $payload = [];
+
+        if (array_key_exists('name', $validated)) {
+            $payload['name'] = $validated['name'];
+        }
+        if (array_key_exists('specialite', $validated) || array_key_exists('specialization', $validated)) {
+            $payload['specialite'] = $validated['specialite'] ?? ($validated['specialization'] ?? null);
+        }
+        if (array_key_exists('grade', $validated) || array_key_exists('title', $validated)) {
+            $payload['grade'] = $validated['grade'] ?? ($validated['title'] ?? null);
+        }
+
+        foreach (['department_id', 'hire_date', 'employee_id', 'specialization', 'title', 'status'] as $column) {
+            if (array_key_exists($column, $validated) && Schema::hasColumn('professors', $column)) {
+                $payload[$column] = $validated[$column];
+            }
+        }
+
+        return array_filter($payload, static function ($value) {
+            return $value !== null;
+        });
+    }
+
     private function professorForRequest(Request $request): ?Professor
     {
         $user = $request->user();
@@ -46,50 +81,45 @@ class ProfessorController extends Controller
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
+        $rules = [
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:8',
             'name' => 'required|string|max:255',
-            'phone' => 'nullable|string|max:50',
-            'address' => 'nullable|string',
-            'date_of_birth' => 'nullable|date',
-            'gender' => 'nullable|in:male,female,other',
-            'department_id' => 'nullable|exists:departments,id',
+            'specialite' => 'nullable|string|max:255',
             'specialization' => 'nullable|string|max:255',
-            'hire_date' => 'required|date',
-            'employee_id' => 'nullable|string|max:50|unique:professors,employee_id',
+            'grade' => 'nullable|string|max:100',
             'title' => 'nullable|string|max:100',
-            'status' => 'nullable|in:active,on_leave,retired',
-        ]);
+        ];
+
+        if (Schema::hasColumn('professors', 'department_id')) {
+            $rules['department_id'] = 'nullable|exists:departments,id';
+        }
+        if (Schema::hasColumn('professors', 'hire_date')) {
+            $rules['hire_date'] = 'required|date';
+        }
+        if (Schema::hasColumn('professors', 'employee_id')) {
+            $rules['employee_id'] = 'nullable|string|max:50|unique:professors,employee_id';
+        }
+        if (Schema::hasColumn('professors', 'status')) {
+            $rules['status'] = 'nullable|in:active,on_leave,retired';
+        }
+
+        $validated = $request->validate($rules);
 
         // Create user account
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
-            'role_id' => 2, // Professor role
+            'role_id' => $this->resolveProfessorRoleId(),
         ]);
 
         // Create professor record
-        $professorData = [
-            'user_id' => $user->id,
-            'department_id' => $validated['department_id'] ?? null,
-            'hire_date' => $validated['hire_date'],
-            'status' => $validated['status'] ?? 'active',
-        ];
-        
-        if (isset($validated['employee_id'])) {
-            $professorData['employee_id'] = $validated['employee_id'];
-        }
-        
-        if (isset($validated['specialization'])) {
-            $professorData['specialization'] = $validated['specialization'];
-        }
-        
-        if (isset($validated['title'])) {
-            $professorData['title'] = $validated['title'];
-        }
-        
+        $professorData = array_merge(
+            ['user_id' => $user->id],
+            $this->normalizeProfessorPayload($validated)
+        );
+
         $professor = Professor::create($professorData);
         
         return response()->json($professor->load(['user', 'courses']), 201);
@@ -102,27 +132,42 @@ class ProfessorController extends Controller
 
     public function update(Request $request, Professor $professor)
     {
-        $validated = $request->validate([
+        $rules = [
             'name' => 'sometimes|string|max:255',
-            'phone' => 'nullable|string|max:50',
-            'address' => 'nullable|string',
-            'date_of_birth' => 'nullable|date',
-            'gender' => 'nullable|in:male,female,other',
-            'department_id' => 'nullable|exists:departments,id',
+            'email' => 'sometimes|email|unique:users,email,' . $professor->user_id,
+            'password' => 'sometimes|string|min:8',
+            'specialite' => 'nullable|string|max:255',
             'specialization' => 'nullable|string|max:255',
-            'hire_date' => 'sometimes|date',
-            'employee_id' => 'nullable|string|max:50|unique:professors,employee_id,' . $professor->id,
+            'grade' => 'nullable|string|max:100',
             'title' => 'nullable|string|max:100',
-            'status' => 'sometimes|in:active,on_leave,retired',
-        ]);
+        ];
+
+        if (Schema::hasColumn('professors', 'department_id')) {
+            $rules['department_id'] = 'nullable|exists:departments,id';
+        }
+        if (Schema::hasColumn('professors', 'hire_date')) {
+            $rules['hire_date'] = 'sometimes|date';
+        }
+        if (Schema::hasColumn('professors', 'employee_id')) {
+            $rules['employee_id'] = 'nullable|string|max:50|unique:professors,employee_id,' . $professor->id;
+        }
+        if (Schema::hasColumn('professors', 'status')) {
+            $rules['status'] = 'sometimes|in:active,on_leave,retired';
+        }
+
+        $validated = $request->validate($rules);
 
         // Update user data
-        if (isset($validated['name'])) {
-            $professor->user->update(['name' => $validated['name']]);
+        $userPayload = [];
+        if (isset($validated['name'])) $userPayload['name'] = $validated['name'];
+        if (isset($validated['email'])) $userPayload['email'] = $validated['email'];
+        if (isset($validated['password'])) $userPayload['password'] = Hash::make($validated['password']);
+        if ($userPayload !== []) {
+            $professor->user->update($userPayload);
         }
 
         // Update professor data
-        $professor->update($validated);
+        $professor->update($this->normalizeProfessorPayload($validated));
         
         return response()->json($professor->load(['user', 'courses']));
     }

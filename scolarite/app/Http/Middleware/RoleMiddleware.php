@@ -30,6 +30,8 @@ class RoleMiddleware
                 'administrator' => 'admin',
                 'professor' => 'enseignant',
                 'student' => 'etudiant',
+                'director' => 'directeur_etudes',
+                'directeur' => 'directeur_etudes',
             ], (array) config('rbac.aliases', []));
             $userRole = strtolower($user->role->name);
             $userRole = $aliases[$userRole] ?? $userRole;

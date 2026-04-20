@@ -120,6 +120,10 @@ class MessageController extends Controller
 
     public function show(Message $message)
     {
+        if ((int) $message->sender_id !== (int) Auth::id() && (int) $message->receiver_id !== (int) Auth::id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
         if ($message->receiver_id == Auth::id() && !$message->is_read) {
             $message->update(['is_read' => true]);
         }

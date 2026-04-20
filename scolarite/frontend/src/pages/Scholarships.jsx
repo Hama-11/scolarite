@@ -70,8 +70,10 @@ export default function Scholarships() {
       scholarshipService.getAvailable(),
       scholarshipService.getMyApplications(),
     ]);
-    setAvailable(Array.isArray(av.data) ? av.data : []);
-    setMyApps(Array.isArray(mine.data) ? mine.data : []);
+    const avPayload = av?.data;
+    const minePayload = mine?.data;
+    setAvailable(Array.isArray(avPayload) ? avPayload : avPayload?.data || []);
+    setMyApps(Array.isArray(minePayload) ? minePayload : minePayload?.data || []);
   }, []);
 
   const loadAdmin = useCallback(async () => {

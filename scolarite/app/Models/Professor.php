@@ -14,6 +14,16 @@ class Professor extends Model
         'name',
         'specialite',
         'grade',
+        'department_id',
+        'hire_date',
+        'employee_id',
+        'specialization',
+        'title',
+        'status',
+    ];
+
+    protected $casts = [
+        'hire_date' => 'date',
     ];
 
     public function user()
@@ -36,4 +46,3 @@ class Professor extends Model
         return $this->hasMany(SchoolClass::class, 'professor_id');
     }
 }
-

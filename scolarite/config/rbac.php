@@ -5,6 +5,7 @@ return [
         'etudiant',
         'enseignant',
         'admin',
+        'directeur_etudes',
     ],
 
     'aliases' => [
@@ -21,6 +22,10 @@ return [
         'chefdepartement' => 'admin',
         'finance' => 'admin',
         'support' => 'admin',
+        'director' => 'directeur_etudes',
+        'directeur' => 'directeur_etudes',
+        'directeur_etudes' => 'directeur_etudes',
+        'directeuretudes' => 'directeur_etudes',
     ],
 
     'permissions' => [
@@ -44,6 +49,22 @@ return [
 
     'matrix' => [
         'admin' => ['*'],
+        'directeur_etudes' => [
+            'catalog.read', 'catalog.create', 'catalog.update',
+            'groups.read',
+            'schedules.read', 'schedules.create', 'schedules.update', 'schedules.export_ics',
+            'exams.read', 'exams.create', 'exams.update', 'exams.generate_reports',
+            'grades.read',
+            'attendance.read',
+            'documents.read', 'documents.download',
+            'announcements.read',
+            'messages.read',
+            'notifications.read',
+            'requests.read', 'requests.update', 'requests.approve', 'requests.reject',
+            'payments.read',
+            'audit.read',
+            'bi.read',
+        ],
         'enseignant' => [
             'catalog.read', 'groups.read',
             'schedules.read', 'schedules.export_ics',

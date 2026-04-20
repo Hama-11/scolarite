@@ -14,6 +14,7 @@ class AcademicModule extends Model
     protected $fillable = [
         'program_id',
         'semester_id',
+        'coordinator_professor_id',
         'code',
         'name',
         'credits',
@@ -39,5 +40,10 @@ class AcademicModule extends Model
             'module_id',
             'prerequisite_module_id'
         );
+    }
+
+    public function coordinatorProfessor()
+    {
+        return $this->belongsTo(Professor::class, 'coordinator_professor_id');
     }
 }

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import AdminRoute from "./routes/AdminRoute";
+import DirectorRoute from "./routes/DirectorRoute";
 import RequireRole from "./routes/RequireRole";
 import { ROLE } from "./auth/roles";
 
@@ -40,6 +41,14 @@ const ProfessorSchoolClasses = lazy(() => import("./pages/ProfessorSchoolClasses
 const StudentPathway = lazy(() => import("./pages/StudentPathway"));
 const ProfessorRisk = lazy(() => import("./pages/ProfessorRisk"));
 const ProfessorStudentRiskDetail = lazy(() => import("./pages/ProfessorStudentRiskDetail"));
+const DirectorDashboard = lazy(() => import("./pages/DirectorDashboard"));
+const DirectorAcademicValidation = lazy(() => import("./pages/DirectorAcademicValidation"));
+const DirectorStudentsFollowUp = lazy(() => import("./pages/DirectorStudentsFollowUp"));
+const DirectorClaims = lazy(() => import("./pages/DirectorClaims"));
+const DirectorExams = lazy(() => import("./pages/DirectorExams"));
+const AdminUsers = lazy(() => import("./pages/AdminUsers"));
+const AdminSystemCenter = lazy(() => import("./pages/AdminSystemCenter"));
+const ModernizationHub = lazy(() => import("./pages/ModernizationHub"));
 
 // Loading Spinner Component
 function LoadingSpinner() {
@@ -72,6 +81,11 @@ export default function App() {
           {/* Protected Routes */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><AdminRoute><AdminDashboard /></AdminRoute></ProtectedRoute>} />
+          <Route path="/director" element={<ProtectedRoute><DirectorRoute><DirectorDashboard /></DirectorRoute></ProtectedRoute>} />
+          <Route path="/director/validation" element={<ProtectedRoute><DirectorRoute><DirectorAcademicValidation /></DirectorRoute></ProtectedRoute>} />
+          <Route path="/director/students-followup" element={<ProtectedRoute><DirectorRoute><DirectorStudentsFollowUp /></DirectorRoute></ProtectedRoute>} />
+          <Route path="/director/claims" element={<ProtectedRoute><DirectorRoute><DirectorClaims /></DirectorRoute></ProtectedRoute>} />
+          <Route path="/director/exams" element={<ProtectedRoute><DirectorRoute><DirectorExams /></DirectorRoute></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/courses" element={<ProtectedRoute><Courses /></ProtectedRoute>} />
           <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
@@ -96,6 +110,9 @@ export default function App() {
             }
           />
           <Route path="/admin/academic-core" element={<ProtectedRoute><AdminRoute><AcademicCore /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute><AdminRoute><AdminUsers /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/system-center" element={<ProtectedRoute><AdminRoute><AdminSystemCenter /></AdminRoute></ProtectedRoute>} />
+          <Route path="/director/academic-core" element={<ProtectedRoute><DirectorRoute><AcademicCore /></DirectorRoute></ProtectedRoute>} />
           <Route
             path="/sessions"
             element={
@@ -110,7 +127,7 @@ export default function App() {
             path="/reports"
             element={
               <ProtectedRoute>
-                <RequireRole allow={[ROLE.ADMIN]}>
+                <RequireRole allow={[ROLE.ADMIN, ROLE.DIRECTEUR]}>
                   <Reports />
                 </RequireRole>
               </ProtectedRoute>
@@ -182,6 +199,7 @@ export default function App() {
           <Route path="/admin/school-classes" element={<ProtectedRoute><AdminRoute><AdminSchoolClasses /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/official-requests" element={<ProtectedRoute><AdminRoute><AdminOfficialRequests /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/conception-grade-disputes" element={<ProtectedRoute><AdminRoute><AdminGradeDisputesPage /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/modernization" element={<ProtectedRoute><AdminRoute><ModernizationHub /></AdminRoute></ProtectedRoute>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -9,6 +9,16 @@ use Illuminate\Support\Facades\Auth;
 
 class AnnouncementController extends Controller
 {
+    private function ensureTeachingWriteAccess(Request $request)
+    {
+        $user = $request->user();
+        if ($user && ($user->isAdministrator() || $user->isProfessor())) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Forbidden'], 403);
+    }
+
     public function index(Request $request)
     {
         $query = Announcement::with(['author', 'course', 'group']);
@@ -32,6 +42,10 @@ class AnnouncementController extends Controller
 
     public function store(Request $request)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'course_id' => 'nullable|exists:courses,id',
             'group_id' => 'nullable|exists:groups,id',
@@ -60,6 +74,10 @@ class AnnouncementController extends Controller
 
     public function update(Request $request, Announcement $announcement)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'course_id' => 'nullable|exists:courses,id',
             'group_id' => 'nullable|exists:groups,id',
@@ -77,6 +95,10 @@ class AnnouncementController extends Controller
 
     public function destroy(Announcement $announcement)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $announcement->delete();
         
         return response()->json(['message' => 'Announcement deleted successfully']);

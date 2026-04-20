@@ -10,6 +10,16 @@ use Illuminate\Support\Facades\Auth;
 
 class ScheduleController extends Controller
 {
+    private function ensureTeachingWriteAccess(Request $request)
+    {
+        $user = $request->user();
+        if ($user && ($user->isAdministrator() || $user->isProfessor() || $user->hasRole('directeur_etudes'))) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Forbidden'], 403);
+    }
+
     public function index(Request $request)
     {
         $query = Schedule::with(['course', 'group', 'professor', 'room']);
@@ -35,6 +45,10 @@ class ScheduleController extends Controller
 
     public function store(Request $request)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'course_id' => 'required|exists:courses,id',
             'group_id' => 'nullable|exists:groups,id',
@@ -61,6 +75,10 @@ class ScheduleController extends Controller
 
     public function update(Request $request, Schedule $schedule)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'course_id' => 'sometimes|exists:courses,id',
             'group_id' => 'nullable|exists:groups,id',
@@ -82,6 +100,10 @@ class ScheduleController extends Controller
 
     public function destroy(Schedule $schedule)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $schedule->delete();
         
         return response()->json(['message' => 'Schedule deleted successfully']);
@@ -135,6 +157,28 @@ class ScheduleController extends Controller
             ->orderBy('start_time')
             ->get();
         
+        return response()->json($schedules);
+    }
+
+    public function byRoom($roomId)
+    {
+        $schedules = Schedule::with(['course', 'group', 'professor', 'room'])
+            ->where('room_id', $roomId)
+            ->orderBy('day_of_week')
+            ->orderBy('start_time')
+            ->get();
+
+        return response()->json($schedules);
+    }
+
+    public function byCourse($courseId)
+    {
+        $schedules = Schedule::with(['course', 'group', 'professor', 'room'])
+            ->where('course_id', $courseId)
+            ->orderBy('day_of_week')
+            ->orderBy('start_time')
+            ->get();
+
         return response()->json($schedules);
     }
 }

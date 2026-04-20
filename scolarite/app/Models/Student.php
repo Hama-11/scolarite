@@ -62,6 +62,11 @@ class Student extends Model
         return $this->hasMany(Grade::class);
     }
 
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(Attendance::class);
+    }
+
     public function parentInfo(): HasOne
     {
         return $this->hasOne(ParentInfo::class);

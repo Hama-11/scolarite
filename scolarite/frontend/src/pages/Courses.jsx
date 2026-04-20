@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AppLayout from '../components/AppLayout';
 import { Card, CardHeader, Badge, Button, Spinner, Input, Select, Modal, Textarea, Table, TableHead, TableBody, TableRow, TableHeader, TableCell, Pagination, EmptyState, Alert } from '../components/ui';
-import { courseService } from '../services/api';
+import { courseService, adminService } from '../services/api';
 
 export default function Courses() {
   const { isAdmin, isProfessor } = useAuth();
@@ -11,10 +11,12 @@ export default function Courses() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
+  const [programs, setPrograms] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
     code: '',
@@ -25,23 +27,57 @@ export default function Courses() {
     evaluation_type: 'mixed',
   });
 
+  useEffect(() => {
+    let mounted = true;
+    async function loadPrograms() {
+      if (!isAdmin()) return;
+      try {
+        const res = await adminService.getPrograms({ per_page: 200 });
+        const payload = res?.data;
+        const rows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+        if (mounted) setPrograms(rows);
+      } catch {
+        if (mounted) setPrograms([]);
+      }
+    }
+    loadPrograms();
+    return () => {
+      mounted = false;
+    };
+  }, [isAdmin]);
+
   const fetchCourses = useCallback(async () => {
     try {
       setLoading(true);
       const response = await courseService.getAll({ 
         page, 
-        search: searchTerm,
+        search: debouncedSearch,
         per_page: 10,
       });
       setCourses(response.data.data || []);
       setTotalPages(response.data.last_page || 1);
     } catch (err) {
       console.error("Erreur chargement cours:", err);
-      setError("Impossible de charger les cours");
+      const status = err?.response?.status;
+      const serverMessage = err?.response?.data?.message;
+      if (status === 429) {
+        setError("Trop de requêtes en peu de temps. Attendez quelques secondes puis réessayez.");
+      } else {
+        setError(serverMessage || "Impossible de charger les cours");
+      }
     } finally {
       setLoading(false);
     }
-  }, [page, searchTerm]);
+  }, [page, debouncedSearch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPage(1);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     fetchCourses();
@@ -112,7 +148,7 @@ export default function Courses() {
           <h2>Cours</h2>
           <p>Gerez vos cours et les inscriptions depuis cet espace.</p>
         </div>
-        {(isAdmin() || isProfessor()) && (
+        {isAdmin() && (
           <Button onClick={openNewModal}>
             Ajouter un cours
           </Button>
@@ -262,14 +298,20 @@ export default function Courses() {
                 onChange={(e) => setFormData({ ...formData, credits: e.target.value })}
                 required
               />
-              <Input
+              <Select
                 id="program_id"
-                label="ID programme"
-                type="number"
-                value={formData.program_id}
+                label="Programme"
+                value={String(formData.program_id || "")}
                 onChange={(e) => setFormData({ ...formData, program_id: e.target.value })}
                 required
-              />
+              >
+                <option value="">— Sélectionner —</option>
+                {programs.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.code})
+                  </option>
+                ))}
+              </Select>
               <Select
                 id="semester"
                 label="Semestre"

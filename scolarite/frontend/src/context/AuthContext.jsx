@@ -57,7 +57,7 @@ export function AuthProvider({ children }) {
   const verifyOtp = async (email, otp) => {
     try {
       setError(null);
-      const response = await api.post('/verify-otp', { email, otp });
+      const response = await api.post('/verify-otp', { email, otp_code: otp });
       const { token, user: userData } = response.data;
       setAuth(token, userData);
       setUser(userData);
@@ -140,6 +140,7 @@ export function AuthProvider({ children }) {
   };
 
   const isAdmin = () => canonicalRole === ROLE.ADMIN;
+  const isDirector = () => canonicalRole === ROLE.DIRECTEUR;
   const isProfessor = () => canonicalRole === ROLE.ENSEIGNANT;
   const isStudent = () => canonicalRole === ROLE.ETUDIANT;
 
@@ -157,6 +158,7 @@ export function AuthProvider({ children }) {
     updatePassword,
     hasRole,
     isAdmin,
+    isDirector,
     isProfessor,
     isStudent,
   };

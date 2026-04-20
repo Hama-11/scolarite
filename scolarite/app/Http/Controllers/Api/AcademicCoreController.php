@@ -92,7 +92,7 @@ class AcademicCoreController extends Controller
     public function modules(Request $request)
     {
         if ($request->isMethod('get')) {
-            $query = AcademicModule::with(['program.department', 'semester.level', 'prerequisites:id,code,name']);
+            $query = AcademicModule::with(['program.department', 'semester.level', 'prerequisites:id,code,name', 'coordinatorProfessor.user']);
             if ($request->filled('program_id')) {
                 $query->where('program_id', $request->integer('program_id'));
             }
@@ -105,6 +105,7 @@ class AcademicCoreController extends Controller
         $validated = $request->validate([
             'program_id' => 'required|exists:programs,id',
             'semester_id' => 'required|exists:semesters,id',
+            'coordinator_professor_id' => 'nullable|exists:professors,id',
             'code' => 'required|string|max:50|unique:modules,code',
             'name' => 'required|string|max:255',
             'credits' => 'required|integer|min:0|max:60',
@@ -124,7 +125,7 @@ class AcademicCoreController extends Controller
                 $module->prerequisites()->sync($prereqIds);
             }
             return response()->json(
-                $module->load(['program.department', 'semester.level', 'prerequisites:id,code,name']),
+                $module->load(['program.department', 'semester.level', 'prerequisites:id,code,name', 'coordinatorProfessor.user']),
                 201
             );
         });
@@ -135,6 +136,7 @@ class AcademicCoreController extends Controller
         $validated = $request->validate([
             'program_id' => 'sometimes|exists:programs,id',
             'semester_id' => 'sometimes|exists:semesters,id',
+            'coordinator_professor_id' => 'nullable|exists:professors,id',
             'code' => 'sometimes|string|max:50|unique:modules,code,' . $module->id,
             'name' => 'sometimes|string|max:255',
             'credits' => 'sometimes|integer|min:0|max:60',
@@ -151,7 +153,7 @@ class AcademicCoreController extends Controller
             if (is_array($prereqIds)) {
                 $module->prerequisites()->sync($prereqIds);
             }
-            return response()->json($module->load(['program.department', 'semester.level', 'prerequisites:id,code,name']));
+            return response()->json($module->load(['program.department', 'semester.level', 'prerequisites:id,code,name', 'coordinatorProfessor.user']));
         });
     }
 

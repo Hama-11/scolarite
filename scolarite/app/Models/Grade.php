@@ -18,11 +18,16 @@ class Grade extends Model
         'type',
         'description',
         'date',
+        'is_validated',
+        'validated_by',
+        'validated_at',
     ];
 
     protected $casts = [
         'grade' => 'decimal:2',
         'date' => 'date',
+        'is_validated' => 'boolean',
+        'validated_at' => 'datetime',
     ];
 
     public function student(): BelongsTo

@@ -13,6 +13,16 @@ class GradeController extends Controller
 {
     private const ALLOWED_TYPES = ['exam', 'ds', 'tp', 'project', 'participation', 'final'];
 
+    private function ensureTeachingWriteAccess(Request $request)
+    {
+        $user = $request->user();
+        if ($user && ($user->isAdministrator() || $user->isProfessor())) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Forbidden'], 403);
+    }
+
     private function normalizeType(?string $type): string
     {
         $value = strtolower((string) $type);
@@ -49,6 +59,10 @@ class GradeController extends Controller
 
     public function store(Request $request)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'student_id' => 'required|exists:students,id',
             'course_id' => 'required|exists:courses,id',
@@ -96,6 +110,10 @@ class GradeController extends Controller
 
     public function update(Request $request, Grade $grade)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'grade' => 'nullable|numeric|min:0|max:20',
             'value' => 'nullable|numeric|min:0|max:100',
@@ -131,6 +149,10 @@ class GradeController extends Controller
 
     public function destroy(Grade $grade)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $grade->delete();
         
         return response()->json(['message' => 'Grade deleted successfully']);
@@ -212,6 +234,10 @@ class GradeController extends Controller
 
     public function importCsv(Request $request)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'course_id' => 'required|exists:courses,id',
             'type' => 'required|string',
@@ -347,6 +373,16 @@ class GradeController extends Controller
     public function byCourse($courseId)
     {
         return $this->courseGrades($courseId);
+    }
+
+    public function byStudent($studentId)
+    {
+        $grades = Grade::with(['course'])
+            ->where('student_id', (int) $studentId)
+            ->orderBy('date', 'desc')
+            ->get();
+
+        return response()->json($grades);
     }
 
     public function studentAverage($studentId)

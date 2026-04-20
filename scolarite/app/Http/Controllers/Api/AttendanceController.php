@@ -12,6 +12,16 @@ use Illuminate\Support\Facades\Auth;
 
 class AttendanceController extends Controller
 {
+    private function ensureTeachingWriteAccess(Request $request)
+    {
+        $user = $request->user();
+        if ($user && ($user->isAdministrator() || $user->isProfessor())) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Forbidden'], 403);
+    }
+
     public function index(Request $request)
     {
         $query = Attendance::with(['student.user', 'course']);
@@ -50,6 +60,10 @@ class AttendanceController extends Controller
 
     public function store(Request $request)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'schedule_id' => 'nullable|exists:schedules,id',
             'course_id' => 'nullable|exists:courses,id',
@@ -90,6 +104,10 @@ class AttendanceController extends Controller
 
     public function storeBulk(Request $request)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'schedule_id' => 'nullable|exists:schedules,id',
             'course_id' => 'nullable|exists:courses,id',
@@ -140,6 +158,10 @@ class AttendanceController extends Controller
 
     public function update(Request $request, Attendance $attendance)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'status' => 'sometimes|in:present,absent,late,excused',
             'notes' => 'nullable|string',
@@ -156,6 +178,10 @@ class AttendanceController extends Controller
 
     public function destroy(Attendance $attendance)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $attendance->delete();
         
         return response()->json(['message' => 'Attendance deleted successfully']);

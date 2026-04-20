@@ -17,6 +17,7 @@ class AdminUserSeeder extends Seeder
     {
         // Get admin role
         $adminRole = DB::table('roles')->where('name', 'admin')->first();
+        $directorRole = DB::table('roles')->where('name', 'directeur_etudes')->first();
 
         if (!$adminRole) {
             // Create admin role if it doesn't exist
@@ -48,6 +49,26 @@ class AdminUserSeeder extends Seeder
             echo "Default admin user created: admin@scolarite.com / admin123\n";
         } else {
             echo "Admin user already exists\n";
+        }
+
+        // Create default director of studies if it doesn't exist
+        if ($directorRole) {
+            $directorExists = DB::table('users')->where('email', 'director@scolarite.com')->exists();
+            if (!$directorExists) {
+                DB::table('users')->insert([
+                    'name' => 'Directeur des études',
+                    'email' => 'director@scolarite.com',
+                    'password' => Hash::make('director123'),
+                    'role_id' => $directorRole->id,
+                    'email_verified_at' => now(),
+                    'verification_token' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                echo "Default director user created: director@scolarite.com / director123\n";
+            } else {
+                echo "Director user already exists\n";
+            }
         }
     }
 }

@@ -48,8 +48,10 @@ class AuthController extends Controller
     {
         $this->ensureDefaultRoles();
 
-        // Log incoming request for debugging
-        Log::info('Registration request:', $request->all());
+        Log::info('Registration request received', [
+            'email' => $request->input('email'),
+            'role_id' => $request->input('role_id'),
+        ]);
         
         $data = $request->validate([
             'name'         => ['required','string','max:100'],
@@ -77,8 +79,11 @@ class AuthController extends Controller
                 'verification_token' => $verificationOtp,
             ]);
         } catch (\Exception $e) {
-            Log::error('User creation failed: ' . $e->getMessage());
-            return response()->json(['message' => 'Erreur lors de la création du compte: ' . $e->getMessage()], 500);
+            Log::error('User creation failed', [
+                'email' => $request->input('email'),
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['message' => 'Erreur lors de la creation du compte.'], 500);
         }
 
         // Send verification OTP via email
@@ -214,8 +219,17 @@ class AuthController extends Controller
     {
         $request->validate([
             'email' => ['required','email'],
-            'otp_code' => ['required','string','size:6'],
+            'otp_code' => ['nullable','string','size:6'],
+            'otp' => ['nullable','string','size:6'],
         ]);
+
+        $otpCode = (string) ($request->input('otp_code') ?: $request->input('otp'));
+        if ($otpCode === '') {
+            return response()->json([
+                'message' => 'Le code OTP est requis',
+                'errors' => ['otp_code' => ['Le code OTP est requis']],
+            ], 422);
+        }
 
         $user = User::where('email', $request->email)->first();
         
@@ -224,7 +238,7 @@ class AuthController extends Controller
         }
 
         // Check if OTP is valid
-        if ($user->otp_code !== $request->otp_code) {
+        if ($user->otp_code !== $otpCode) {
             return response()->json(['message' => 'Code OTP incorrect'], 401);
         }
 

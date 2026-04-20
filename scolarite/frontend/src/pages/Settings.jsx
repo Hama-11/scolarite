@@ -1,13 +1,14 @@
 import { useState } from "react";
 import AppLayout from "../components/AppLayout";
-import { api } from "../api/axios";
 import { getUser, setAuth } from "../auth/auth";
+import { profileService } from "../services/api";
 import "../components/dashboard.css";
 
 export default function Settings() {
   const [user, setUser] = useState(getUser());
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState(user?.email || "");
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -24,19 +25,32 @@ export default function Settings() {
 
     setLoading(true);
     try {
-      const data = {};
-      if (name !== user.name) data.name = name;
-      if (email !== user.email) data.email = email;
-      if (newPassword) data.password = newPassword;
+      let profileUpdated = false;
+      if (name !== user?.name || email !== user?.email) {
+        const profileRes = await profileService.updateProfile({ name, email });
+        const updatedUser = profileRes?.data?.user || profileRes?.data;
+        if (updatedUser) {
+          setAuth(localStorage.getItem("token"), updatedUser);
+          setUser(updatedUser);
+        }
+        profileUpdated = true;
+      }
 
-      const res = await api.put("/profile", data);
-      setMessage({ type: "success", text: res.data.message });
-      
-      // Update user in localStorage
-      setAuth(localStorage.getItem("token"), res.data.user);
-      setUser(res.data.user);
-      
-      // Clear password fields
+      if (newPassword) {
+        if (!currentPassword) {
+          setMessage({ type: "error", text: "Le mot de passe actuel est requis pour la mise à jour." });
+          setLoading(false);
+          return;
+        }
+        await profileService.updatePassword({
+          current_password: currentPassword,
+          password: newPassword,
+          password_confirmation: confirmPassword,
+        });
+      }
+
+      setMessage({ type: "success", text: profileUpdated || newPassword ? "Paramètres mis à jour." : "Aucune modification détectée." });
+      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {
@@ -102,6 +116,17 @@ export default function Settings() {
             <hr style={{ margin: "20px 0" }} />
 
             <h4 style={{ marginBottom: 16 }}>Changer le mot de passe</h4>
+
+            <div className="form-group">
+              <label className="form-label">Mot de passe actuel</label>
+              <input
+                type="password"
+                className="form-control"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Requis si vous changez le mot de passe"
+              />
+            </div>
 
             <div className="form-group">
               <label className="form-label">Nouveau mot de passe</label>

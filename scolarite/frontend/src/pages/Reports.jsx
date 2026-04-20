@@ -77,7 +77,7 @@ export default function Reports() {
       <div className="page-header header-row">
         <div>
           <h2>Tableau de bord analytique</h2>
-          <p>Indicateurs issus de la plateforme (groupes de tutorat, séances, demandes).</p>
+          <p>Indicateurs réels calculés depuis la base de données académique.</p>
         </div>
         <div className="header-actions">
           <Button type="button" variant="secondary" size="sm" onClick={() => window.location.reload()}>
@@ -94,12 +94,12 @@ export default function Reports() {
 
       <div className="stats-grid">
         {[
-          { icon: "👥", color: "blue", label: "Groupes actifs", value: stats.active_groups ?? 0 },
-          { icon: "👨‍🏫", color: "purple", label: "Professeurs", value: stats.professors ?? 0 },
           { icon: "🎓", color: "orange", label: "Étudiants", value: stats.students ?? 0 },
-          { icon: "📅", color: "purple", label: "Séances ce mois", value: stats.sessions_this_month ?? 0 },
-          { icon: "📋", color: "yellow", label: "Demandes en attente", value: stats.pending_requests ?? 0 },
-          { icon: "✅", color: "green", label: "Taux présence (estim.)", value: `${stats.attendance_rate ?? 0}%` },
+          { icon: "👨‍🏫", color: "purple", label: "Professeurs", value: stats.professors ?? 0 },
+          { icon: "📚", color: "blue", label: "Cours actifs", value: stats.active_courses ?? 0 },
+          { icon: "🧾", color: "yellow", label: "Inscriptions validées", value: stats.approved_enrollments ?? 0 },
+          { icon: "📅", color: "purple", label: "Plannings ce mois", value: stats.schedules_this_month ?? 0 },
+          { icon: "✅", color: "green", label: "Taux présence", value: `${stats.attendance_rate ?? 0}%` },
         ].map((s) => (
           <div className="stat-card" key={s.label}>
             <div className="stat-card-top">
@@ -113,7 +113,7 @@ export default function Reports() {
 
       <div className="grid-70-30 mt-6">
         <Card>
-          <CardHeader title="Séances par mois (année en cours)" subtitle="Données agrégées — modèle tutorat" />
+          <CardHeader title="Plannings par mois (année en cours)" subtitle="Basé sur les données de planning enregistrées en base." />
           <div className="p-4">
             {monthBars.length === 0 ? (
               <p className="text-sm text-gray-500">Aucune donnée.</p>
@@ -133,12 +133,12 @@ export default function Reports() {
         </Card>
 
         <Card>
-          <CardHeader title="Types de séances (terminées)" />
+          <CardHeader title="Répartition des types pédagogiques" />
           <div className="p-4 space-y-3">
             {["presential", "online", "mixed"].map((key) => (
               <div key={key}>
                 <div className="header-row text-sm mb-1">
-                  <span>{key === "presential" ? "Présentiel" : key === "online" ? "En ligne" : "Mixte"}</span>
+                  <span>{key === "presential" ? "Cours" : key === "online" ? "TD" : "TP"}</span>
                   <span className="font-semibold">{sessionTypes[key] ?? 0}%</span>
                 </div>
                 <div className="progress-bar">
@@ -146,7 +146,7 @@ export default function Reports() {
                 </div>
               </div>
             ))}
-            <p className="text-xs text-gray-500 mt-2">Total séances terminées : {sessionTypes.total ?? 0}</p>
+            <p className="text-xs text-gray-500 mt-2">Total créneaux planifiés : {sessionTypes.total ?? 0}</p>
           </div>
         </Card>
       </div>

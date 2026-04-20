@@ -28,6 +28,8 @@ use App\Http\Controllers\Api\AcademicCoreController;
 use App\Http\Controllers\Api\StudentLifecycleController;
 use App\Http\Controllers\Api\AdminLifecycleController;
 use App\Http\Controllers\Api\SchoolClassController;
+use App\Http\Controllers\Api\ModernizationController;
+use App\Http\Controllers\Api\DirectorAcademicController;
 
 // ============================================
 // Public Routes (Authentication)
@@ -38,9 +40,9 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
 Route::post('/verify-email-otp', [AuthController::class, 'verifyEmailOtp']);
 Route::post('/resend-verification-otp', [AuthController::class, 'resendVerificationOtp']);
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
-Route::post('/resend-otp', [AuthController::class, 'resendOtp']);
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:auth');
+Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:auth');
+Route::post('/resend-otp', [AuthController::class, 'resendOtp'])->middleware('throttle:auth');
 
 // Public Admission Routes
 Route::get('/admissions/campaigns/active', [AdmissionController::class, 'activeCampaigns']);
@@ -122,7 +124,7 @@ Route::middleware(['auth:sanctum', 'role:etudiant'])->group(function () {
 // Professor/Teacher Routes
 // ============================================
 
-Route::middleware(['auth:sanctum', 'role:enseignant,admin'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:enseignant,admin,directeur_etudes'])->group(function () {
     // Professor Courses
     Route::get('/professor/courses', [CourseController::class, 'professorCourses']);
     Route::get('/professor/students', [ProfessorController::class, 'getStudents']);
@@ -204,11 +206,11 @@ Route::middleware(['auth:sanctum', 'permission:attendance.read'])->group(functio
 // ============================================
 
 Route::middleware(['auth:sanctum', 'permission:messages.read'])->group(function () {
-    Route::apiResource('messages', MessageController::class);
+    Route::get('/messages/unread', [MessageController::class, 'unreadCount']);
     Route::get('/messages/conversation/{userId}', [MessageController::class, 'conversation']);
     Route::get('/messages/course/{course}', [MessageController::class, 'courseThread']);
-    Route::get('/messages/unread', [MessageController::class, 'unreadCount']);
     Route::post('/messages/course/{course}', [MessageController::class, 'postCourseMessage'])->middleware('permission:messages.create');
+    Route::apiResource('messages', MessageController::class)->whereNumber('message');
 });
 
 // ============================================
@@ -265,13 +267,20 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
 // Admission Routes
 // ============================================
 
-Route::middleware(['auth:sanctum', 'role:admin,enseignant'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:admin,enseignant,directeur_etudes'])->group(function () {
     // Campaigns
-    Route::apiResource('admissions/campaigns', AdmissionController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
+    Route::get('/admissions/campaigns', [AdmissionController::class, 'campaigns']);
+    Route::post('/admissions/campaigns', [AdmissionController::class, 'storeCampaign']);
+    Route::get('/admissions/campaigns/{campaign}', [AdmissionController::class, 'showCampaign']);
+    Route::put('/admissions/campaigns/{campaign}', [AdmissionController::class, 'updateCampaign']);
+    Route::delete('/admissions/campaigns/{campaign}', [AdmissionController::class, 'destroyCampaign']);
     Route::get('/admissions/campaigns/{campaign}/statistics', [AdmissionController::class, 'statistics']);
     
     // Applications
-    Route::apiResource('admissions', AdmissionController::class)->only(['index', 'show', 'update', 'destroy']);
+    Route::get('/admissions', [AdmissionController::class, 'admissions']);
+    Route::get('/admissions/{admission}', [AdmissionController::class, 'showAdmission']);
+    Route::put('/admissions/{admission}', [AdmissionController::class, 'updateAdmission']);
+    Route::delete('/admissions/{admission}', [AdmissionController::class, 'destroyAdmission']);
     Route::put('/admissions/{admission}/review', [AdmissionController::class, 'reviewAdmission']);
 });
 
@@ -280,8 +289,8 @@ Route::middleware(['auth:sanctum', 'role:admin,enseignant'])->group(function () 
 // ============================================
 
 Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
-    Route::apiResource('forums', ForumController::class);
     Route::get('/forums/my', [ForumController::class, 'myForums']);
+    Route::apiResource('forums', ForumController::class)->whereNumber('forum');
     Route::get('/forums/{forum}/posts', [ForumController::class, 'posts']);
     Route::post('/forums/{forum}/posts', [ForumController::class, 'createPost']);
     Route::get('/forum-posts/{post}', [ForumController::class, 'showPost']);
@@ -298,22 +307,47 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
     Route::get('/admin/dashboard', [AdminController::class, 'dashboardStats']);
     
     // Departments
-    Route::apiResource('departments', AdminController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
+    Route::get('/departments', [AdminController::class, 'departments']);
+    Route::post('/departments', [AdminController::class, 'storeDepartment']);
+    Route::get('/departments/{department}', [AdminController::class, 'showDepartment']);
+    Route::put('/departments/{department}', [AdminController::class, 'updateDepartment']);
+    Route::delete('/departments/{department}', [AdminController::class, 'destroyDepartment']);
     
     // Programs
-    Route::apiResource('programs', AdminController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
+    Route::get('/programs', [AdminController::class, 'programs']);
+    Route::post('/programs', [AdminController::class, 'storeProgram']);
+    Route::get('/programs/{program}', [AdminController::class, 'showProgram']);
+    Route::put('/programs/{program}', [AdminController::class, 'updateProgram']);
+    Route::delete('/programs/{program}', [AdminController::class, 'destroyProgram']);
     
-    // Rooms
-    Route::apiResource('rooms', AdminController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
+    // Rooms (write operations only; read routes are in shared group below)
+    Route::post('/rooms', [AdminController::class, 'storeRoom']);
+    Route::put('/rooms/{room}', [AdminController::class, 'updateRoom']);
+    Route::delete('/rooms/{room}', [AdminController::class, 'destroyRoom']);
     
     // Academic Years
-    Route::apiResource('academic-years', AdminController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
+    Route::get('/academic-years', [AdminController::class, 'academicYears']);
+    Route::post('/academic-years', [AdminController::class, 'storeAcademicYear']);
+    Route::get('/academic-years/{academicYear}', [AdminController::class, 'showAcademicYear']);
+    Route::put('/academic-years/{academicYear}', [AdminController::class, 'updateAcademicYear']);
+    Route::delete('/academic-years/{academicYear}', [AdminController::class, 'destroyAcademicYear']);
     
     // Users
     Route::get('/admin/users', [AdminController::class, 'users']);
     Route::post('/admin/users', [AdminController::class, 'createUser']);
     Route::put('/admin/users/{user}', [AdminController::class, 'updateUser']);
     Route::delete('/admin/users/{user}', [AdminController::class, 'destroyUser']);
+    Route::post('/admin/users/{user}/reset-password', [AdminController::class, 'resetUserPassword']);
+    Route::get('/admin/roles-permissions', [AdminController::class, 'rolesPermissionsMatrix']);
+
+    // System settings, rights and logs
+    Route::get('/admin/system-settings', [AdminController::class, 'systemSettings']);
+    Route::put('/admin/system-settings', [AdminController::class, 'updateSystemSettings']);
+    Route::get('/admin/audit-logs', [AdminController::class, 'auditLogs']);
+
+    // Import / Export
+    Route::post('/admin/import/students-csv', [AdminController::class, 'importStudentsCsv']);
+    Route::get('/admin/export/{dataset}', [AdminController::class, 'exportCsv']);
 
     // Conception : classes scolaires (CRUD, affectation prof / étudiants)
     Route::apiResource('school-classes', SchoolClassController::class);
@@ -334,11 +368,17 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
     Route::patch('/admin/conception/grade-disputes/{gradeDispute}', [AdminLifecycleController::class, 'resolveGradeDispute']);
 });
 
+// Rooms (read-only) for academic actors (director/professor/admin)
+Route::middleware(['auth:sanctum', 'role:admin,enseignant,directeur_etudes'])->group(function () {
+    Route::get('/rooms', [AdminController::class, 'rooms']);
+    Route::get('/rooms/{room}', [AdminController::class, 'showRoom']);
+});
+
 // ============================================
 // Student Management Routes (Admin/Professor)
 // ============================================
 
-Route::middleware(['auth:sanctum', 'role:admin,enseignant'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:admin,enseignant,directeur_etudes'])->group(function () {
     Route::apiResource('students', StudentController::class);
     Route::post('/students/{student}/enroll', [StudentController::class, 'enrollInCourse']);
     Route::post('/students/{student}/group', [StudentController::class, 'assignToGroup']);
@@ -411,4 +451,58 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'permission:catalog.read'])->gr
     Route::post('/exam-sessions', [AcademicCoreController::class, 'examSessions'])->middleware('permission:exams.create');
     Route::post('/exam-sessions/{examSession}/allocations', [AcademicCoreController::class, 'allocateExam'])->middleware('permission:exams.update');
     Route::post('/exam-sessions/{examSession}/report', [AcademicCoreController::class, 'generateExamReport'])->middleware('permission:exams.generate_reports');
+});
+
+// ============================================
+// Modernization v2 (Roadmap implementation)
+// ============================================
+Route::prefix('v2')->middleware(['auth:sanctum', 'role:admin,enseignant,directeur_etudes'])->group(function () {
+    // Axe 1 - Inscriptions + ECTS
+    Route::post('/enrollment/requests', [ModernizationController::class, 'submitEnrollment']);
+    Route::patch('/enrollment/requests/{id}/decision', [ModernizationController::class, 'decideEnrollment']);
+    Route::post('/academic-paths', [ModernizationController::class, 'createAcademicPath']);
+
+    // Axe 1 - Planning avancé
+    Route::get('/schedules/conflicts/resolution', [ModernizationController::class, 'resolveScheduleConflicts']);
+    Route::post('/schedules/optimize', [ModernizationController::class, 'optimizeSchedule']);
+
+    // Axe 1 - Examens
+    Route::post('/exams/subjects/versions', [ModernizationController::class, 'createExamSubjectVersion']);
+    Route::post('/exams/sessions/{sessionId}/publish', [ModernizationController::class, 'publishExamResults']);
+    Route::post('/exams/sessions/{sessionId}/pv', [ModernizationController::class, 'generatePv']);
+
+    // Axe 2 - Intégration import/export
+    Route::post('/integration/exports', [ModernizationController::class, 'exportData']);
+    Route::post('/integration/imports', [ModernizationController::class, 'importData']);
+
+    // Axe 3 - Personnalisation
+    Route::post('/rules', [ModernizationController::class, 'storeRule']);
+    Route::post('/forms/dynamic', [ModernizationController::class, 'storeDynamicForm']);
+
+    // Axe 7 - Ressources
+    Route::post('/resources/reservations', [ModernizationController::class, 'reserveResource']);
+    Route::post('/resources/maintenance', [ModernizationController::class, 'storeMaintenanceTicket']);
+
+    // Axe 1/8 - Stages + recherche
+    Route::post('/careers/internships/offers', [ModernizationController::class, 'storeInternshipOffer']);
+    Route::post('/research/projects', [ModernizationController::class, 'storeResearchProject']);
+    Route::post('/research/publications', [ModernizationController::class, 'storePublication']);
+    Route::post('/research/grants', [ModernizationController::class, 'storeGrantCall']);
+});
+
+// ============================================
+// Director of studies (academic workflows)
+// ============================================
+Route::middleware(['auth:sanctum', 'role:admin,directeur_etudes'])->group(function () {
+    Route::get('/director/grades/pending', [DirectorAcademicController::class, 'pendingGrades']);
+    Route::post('/director/grades/{grade}/validate', [DirectorAcademicController::class, 'validateGrade']);
+    Route::post('/director/grades/validate-bulk', [DirectorAcademicController::class, 'validateGradesBulk']);
+    Route::get('/director/students/{student}/overview', [DirectorAcademicController::class, 'studentOverview']);
+    Route::post('/director/students/{student}/decision', [DirectorAcademicController::class, 'decideAcademic']);
+
+    // Allow director to treat grade disputes and official document requests via existing controller.
+    Route::get('/director/grade-disputes', [AdminLifecycleController::class, 'gradeDisputesIndex']);
+    Route::patch('/director/grade-disputes/{gradeDispute}', [AdminLifecycleController::class, 'resolveGradeDispute']);
+    Route::get('/director/document-requests', [AdminLifecycleController::class, 'documentRequestsIndex']);
+    Route::patch('/director/document-requests/{studentDocumentRequest}', [AdminLifecycleController::class, 'updateDocumentRequest']);
 });

@@ -23,18 +23,27 @@ export default function Tuitions() {
           api.get("/my/tuitions"),
           api.get("/my/payments"),
         ]);
-        setTuitions(tuitionRes.data.data || tuitionRes.data || []);
-        setPayments(paymentRes.data.data || paymentRes.data || []);
+        setTuitions(
+          Array.isArray(tuitionRes.data)
+            ? tuitionRes.data
+            : (tuitionRes.data?.data || tuitionRes.data?.tuitions || [])
+        );
+        setPayments(
+          Array.isArray(paymentRes.data)
+            ? paymentRes.data
+            : (paymentRes.data?.data || [])
+        );
       } else if (isAdmin()) {
         const [tuitionRes, paymentRes] = await Promise.all([
           api.get("/tuitions"),
           api.get("/payments"),
         ]);
-        setTuitions(tuitionRes.data.data || tuitionRes.data || []);
-        setPayments(paymentRes.data.data || paymentRes.data || []);
+        setTuitions(tuitionRes.data?.data || []);
+        setPayments(paymentRes.data?.data || []);
       }
     } catch (err) {
       console.error("Error fetching tuition data:", err);
+      setError(err?.response?.data?.message || "Impossible de charger les données financières.");
     } finally {
       setLoading(false);
     }
@@ -111,7 +120,12 @@ export default function Tuitions() {
   };
 
   const formatDate = (date) => {
-    return new Date(date).toLocaleDateString("fr-FR");
+    if (!date) return "-";
+
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) return "-";
+
+    return parsed.toLocaleDateString("fr-FR");
   };
 
   if (loading) {
@@ -123,8 +137,8 @@ export default function Tuitions() {
   }
 
   // Calculate totals
-  const totalTuitions = tuitions.reduce((sum, t) => sum + (t.amount || 0), 0);
-  const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalTuitions = tuitions.reduce((sum, t) => sum + (Number(t.amount ?? t.total_amount ?? 0) || 0), 0);
+  const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount ?? 0) || 0), 0);
   const remainingBalance = totalTuitions - totalPaid;
 
   return (
@@ -216,8 +230,8 @@ export default function Tuitions() {
                   <tbody>
                     {tuitions.map((tuition) => (
                       <tr key={tuition.id}>
-                        <td>{tuition.description || tuition.title || `Frais ${tuition.semester || ""}`}</td>
-                        <td>{formatCurrency(tuition.amount)}</td>
+                        <td>{tuition.description || tuition.remarks || tuition.title || `Frais ${tuition.semester || ""}`}</td>
+                        <td>{formatCurrency(tuition.amount ?? tuition.total_amount)}</td>
                         <td>{formatDate(tuition.due_date)}</td>
                         <td>
                           <span

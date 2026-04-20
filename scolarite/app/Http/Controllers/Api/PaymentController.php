@@ -13,95 +13,173 @@ use Barryvdh\DomPDF\Facade\Pdf;
 
 class PaymentController extends Controller
 {
+    private function canManagePayments($user): bool
+    {
+        return $user && $user->isAdministrator();
+    }
+
+    private function canAccessPayment($user, Payment $payment): bool
+    {
+        if ($this->canManagePayments($user)) {
+            return true;
+        }
+
+        return $user
+            && $user->student
+            && (int) optional($payment->tuition)->student_id === (int) $user->student->id;
+    }
+
+    private function normalizeMethod(?string $method): string
+    {
+        $value = strtolower((string) $method);
+        $map = [
+            'credit_card' => 'card',
+            'check' => 'cheque',
+        ];
+
+        return $map[$value] ?? $value;
+    }
+
+    private function syncTuitionBalance(Tuition $tuition): void
+    {
+        $totalPaid = (float) $tuition->payments()->where('status', 'completed')->sum('amount');
+
+        if ($tuition->status === 'exempted') {
+            $tuition->update(['paid_amount' => $totalPaid]);
+            return;
+        }
+
+        $nextStatus = 'pending';
+        if ($totalPaid >= (float) $tuition->total_amount) {
+            $nextStatus = 'paid';
+        } elseif ($totalPaid > 0) {
+            $nextStatus = 'partial';
+        }
+
+        $tuition->update([
+            'paid_amount' => $totalPaid,
+            'status' => $nextStatus,
+        ]);
+    }
+
     public function index(Request $request)
     {
+        $user = Auth::user();
         $query = Payment::with(['tuition.student.user']);
-        
+
+        if (!$this->canManagePayments($user)) {
+            if (!$user || !$user->student) {
+                return response()->json(['message' => 'Forbidden'], 403);
+            }
+
+            $query->whereHas('tuition', function ($q) use ($user) {
+                $q->where('student_id', $user->student->id);
+            });
+        }
+
         if ($request->has('tuition_id')) {
             $query->where('tuition_id', $request->tuition_id);
         }
-        
+
         if ($request->has('student_id')) {
             $query->whereHas('tuition', function ($q) use ($request) {
                 $q->where('student_id', $request->student_id);
             });
         }
-        
+
         if ($request->has('status')) {
             $query->where('status', $request->status);
         }
-        
+
         if ($request->has('method')) {
-            $query->where('method', $request->method);
+            $query->where('method', $this->normalizeMethod($request->method));
         }
-        
+
         $payments = $query->orderBy('payment_date', 'desc')->paginate(20);
-        
+
         return response()->json($payments);
     }
 
     public function store(Request $request)
     {
+        if (!$this->canManagePayments($request->user())) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
         $validated = $request->validate([
             'tuition_id' => 'required|exists:tuitions,id',
             'amount' => 'required|numeric|min:0',
             'payment_date' => 'required|date',
-            'method' => 'required|in:cash,check,bank_transfer,credit_card,online',
+            'method' => 'required|in:cash,cheque,check,bank_transfer,card,credit_card,online',
             'reference' => 'nullable|string|max:255',
             'status' => 'nullable|in:pending,completed,failed,refunded',
             'notes' => 'nullable|string',
         ]);
 
-        $payment = Payment::create($validated);
-        
-        // Update tuition status if payment is completed
-        if ($validated['status'] === 'completed') {
-            $tuition = Tuition::find($validated['tuition_id']);
-            $totalPaid = $tuition->payments()->where('status', 'completed')->sum('amount') + $validated['amount'];
-            
-            if ($totalPaid >= $tuition->amount) {
-                $tuition->update(['status' => 'paid']);
-            }
-        }
-        
+        $payment = Payment::create([
+            'tuition_id' => $validated['tuition_id'],
+            'amount' => $validated['amount'],
+            'payment_date' => $validated['payment_date'],
+            'method' => $this->normalizeMethod($validated['method']),
+            'reference' => $validated['reference'] ?? null,
+            'status' => $validated['status'] ?? 'pending',
+            'notes' => $validated['notes'] ?? null,
+        ]);
+
+        $this->syncTuitionBalance(Tuition::findOrFail($validated['tuition_id']));
+
         return response()->json($payment->load('tuition.student.user'), 201);
     }
 
     public function show(Payment $payment)
     {
+        $payment->load('tuition.student.user');
+        if (!$this->canAccessPayment(Auth::user(), $payment)) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
         return response()->json($payment->load('tuition.student.user'));
     }
 
     public function update(Request $request, Payment $payment)
     {
+        if (!$this->canManagePayments($request->user())) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
         $validated = $request->validate([
             'amount' => 'sometimes|numeric|min:0',
             'payment_date' => 'sometimes|date',
-            'method' => 'sometimes|in:cash,check,bank_transfer,credit_card,online',
+            'method' => 'sometimes|in:cash,cheque,check,bank_transfer,card,credit_card,online',
             'reference' => 'nullable|string|max:255',
             'status' => 'sometimes|in:pending,completed,failed,refunded',
             'notes' => 'nullable|string',
         ]);
 
-        $payment->update($validated);
-        
-        // Update tuition status
-        $tuition = $payment->tuition;
-        $totalPaid = $tuition->payments()->where('status', 'completed')->sum('amount');
-        
-        if ($totalPaid >= $tuition->amount) {
-            $tuition->update(['status' => 'paid']);
-        } else {
-            $tuition->update(['status' => 'pending']);
+        if (array_key_exists('method', $validated)) {
+            $validated['method'] = $this->normalizeMethod($validated['method']);
         }
-        
+
+        $payment->update($validated);
+
+        $this->syncTuitionBalance($payment->tuition);
+
         return response()->json($payment->load('tuition.student.user'));
     }
 
     public function destroy(Payment $payment)
     {
+        if (!$this->canManagePayments(Auth::user())) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $tuition = $payment->tuition;
         $payment->delete();
-        
+
+        if ($tuition) {
+            $this->syncTuitionBalance($tuition);
+        }
+
         return response()->json(['message' => 'Payment deleted successfully']);
     }
 
@@ -170,7 +248,7 @@ class PaymentController extends Controller
         }
 
         $alreadyPaid = (float) $tuition->payments()->where('status', 'completed')->sum('amount');
-        $remaining = max((float) $tuition->amount - $alreadyPaid, 0);
+        $remaining = max((float) $tuition->total_amount - $alreadyPaid, 0);
         if ($remaining <= 0) {
             return response()->json(['message' => 'Tuition already paid'], 422);
         }
@@ -204,7 +282,7 @@ class PaymentController extends Controller
                 'metadata[tuition_id]' => (string) $tuition->id,
                 'line_items[0][price_data][currency]' => 'eur',
                 'line_items[0][price_data][product_data][name]' => 'Frais de scolarite',
-                'line_items[0][price_data][product_data][description]' => (string) ($tuition->description ?: ('Tuition #' . $tuition->id)),
+                'line_items[0][price_data][product_data][description]' => (string) ($tuition->remarks ?: ('Tuition #' . $tuition->id)),
                 'line_items[0][price_data][unit_amount]' => (int) round($remaining * 100),
                 'line_items[0][quantity]' => 1,
             ]);

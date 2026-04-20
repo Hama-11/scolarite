@@ -224,6 +224,16 @@ export const adminService = {
   createUser: (data) => api.post('/admin/users', data),
   updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  resetUserPassword: (id) => api.post(`/admin/users/${id}/reset-password`),
+  getRolesPermissions: () => api.get('/admin/roles-permissions'),
+  getSystemSettings: () => api.get('/admin/system-settings'),
+  updateSystemSettings: (data) => api.put('/admin/system-settings', data),
+  getAuditLogs: (params) => api.get('/admin/audit-logs', { params }),
+  importStudentsCsv: (formData) =>
+    api.post('/admin/import/students-csv', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  exportCsv: (dataset) => api.get(`/admin/export/${dataset}`, { responseType: 'blob' }),
 };
 
 // Student Management API Service
@@ -368,4 +378,37 @@ export const professorSchoolService = {
 
 export const professorRegistryService = {
   getAll: (params) => api.get('/professors', { params }),
+};
+
+export const modernizationService = {
+  submitEnrollmentRequest: (data) => api.post('/v2/enrollment/requests', data),
+  decideEnrollmentRequest: (id, data) => api.patch(`/v2/enrollment/requests/${id}/decision`, data),
+  createAcademicPath: (data) => api.post('/v2/academic-paths', data),
+  resolveScheduleConflicts: () => api.get('/v2/schedules/conflicts/resolution'),
+  optimizeSchedule: (data) => api.post('/v2/schedules/optimize', data),
+  createExamSubjectVersion: (data) => api.post('/v2/exams/subjects/versions', data),
+  publishExamResults: (sessionId, data) => api.post(`/v2/exams/sessions/${sessionId}/publish`, data),
+  generatePv: (sessionId, data) => api.post(`/v2/exams/sessions/${sessionId}/pv`, data),
+  exportData: (data) => api.post('/v2/integration/exports', data),
+  importData: (data) => api.post('/v2/integration/imports', data),
+  createRule: (data) => api.post('/v2/rules', data),
+  createDynamicForm: (data) => api.post('/v2/forms/dynamic', data),
+  reserveResource: (data) => api.post('/v2/resources/reservations', data),
+  createMaintenanceTicket: (data) => api.post('/v2/resources/maintenance', data),
+  createInternshipOffer: (data) => api.post('/v2/careers/internships/offers', data),
+  createResearchProject: (data) => api.post('/v2/research/projects', data),
+  createPublication: (data) => api.post('/v2/research/publications', data),
+  createGrantCall: (data) => api.post('/v2/research/grants', data),
+};
+
+export const directorService = {
+  getPendingGrades: (params) => api.get('/director/grades/pending', { params }),
+  validateGrade: (gradeId) => api.post(`/director/grades/${gradeId}/validate`),
+  validateGradesBulk: (grade_ids) => api.post('/director/grades/validate-bulk', { grade_ids }),
+  getStudentOverview: (studentId) => api.get(`/director/students/${studentId}/overview`),
+  decideAcademic: (studentId, data) => api.post(`/director/students/${studentId}/decision`, data),
+  getGradeDisputes: (params) => api.get('/director/grade-disputes', { params }),
+  resolveGradeDispute: (id, data) => api.patch(`/director/grade-disputes/${id}`, data),
+  getDocumentRequests: (params) => api.get('/director/document-requests', { params }),
+  updateDocumentRequest: (id, data) => api.patch(`/director/document-requests/${id}`, data),
 };

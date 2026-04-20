@@ -161,6 +161,7 @@ export default function AdminDashboard() {
               <div style={{ display: "grid", gap: 10 }}>
                 <QuickAction to="/requests" label="Demandes & workflow" value={stats.pending_requests} />
                 <QuickAction to="/admin/academic-core" label="Cœur académique" />
+                <QuickAction to="/admin/system-center" label="Admin système (settings, logs, import/export)" />
                 <QuickAction to="/admin/student-validation" label="Validation dossiers étudiants" />
                 <QuickAction to="/admin/school-classes" label="Classes scolaires" />
                 <QuickAction to="/admin/official-requests" label="Demandes de documents" />

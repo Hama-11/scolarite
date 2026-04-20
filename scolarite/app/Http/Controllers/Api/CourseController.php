@@ -10,6 +10,16 @@ use Illuminate\Support\Facades\Auth;
 
 class CourseController extends Controller
 {
+    private function ensureTeachingWriteAccess(Request $request)
+    {
+        $user = $request->user();
+        if ($user && ($user->isAdministrator() || $user->isProfessor())) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Forbidden'], 403);
+    }
+
     public function index(Request $request)
     {
         $query = Course::with(['program', 'professor', 'module.semester']);
@@ -33,6 +43,10 @@ class CourseController extends Controller
 
     public function store(Request $request)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'code' => 'required|string|unique:courses,code',
@@ -61,6 +75,10 @@ class CourseController extends Controller
 
     public function update(Request $request, Course $course)
     {
+        if ($response = $this->ensureTeachingWriteAccess($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'code' => 'sometimes|string|unique:courses,code,' . $course->id,
@@ -85,6 +103,10 @@ class CourseController extends Controller
 
     public function destroy(Course $course)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $course->delete();
         
         return response()->json(['message' => 'Course deleted successfully']);
@@ -134,6 +156,10 @@ class CourseController extends Controller
 
     public function unenroll(Course $course, $studentId)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $deleted = CourseEnrollment::where('course_id', $course->id)
             ->where('student_id', (int) $studentId)
             ->delete();
@@ -145,6 +171,10 @@ class CourseController extends Controller
 
     public function students(Course $course)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $students = CourseEnrollment::with(['student.user'])
             ->where('course_id', $course->id)
             ->get()
@@ -157,6 +187,10 @@ class CourseController extends Controller
 
     public function enrollments(Course $course)
     {
+        if ($response = $this->ensureTeachingWriteAccess(request())) {
+            return $response;
+        }
+
         $rows = CourseEnrollment::with(['student.user', 'academicYear'])
             ->where('course_id', $course->id)
             ->orderBy('created_at', 'desc')

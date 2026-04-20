@@ -11,10 +11,18 @@ use Illuminate\Support\Facades\Auth;
 
 class AdmissionController extends Controller
 {
+    private function normalizeTextField($value): ?string
+    {
+        if ($value === null) return null;
+        if (is_array($value)) return json_encode($value);
+        $str = trim((string) $value);
+        return $str === '' ? null : $str;
+    }
+
     // Campaign Management
     public function campaigns(Request $request)
     {
-        $query = AdmissionCampaign::with('academicYear', 'program');
+        $query = AdmissionCampaign::with('program');
         
         if ($request->has('is_active')) {
             $query->where('is_active', $request->boolean('is_active'));
@@ -30,25 +38,26 @@ class AdmissionController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'program_id' => 'required|exists:programs,id',
-            'academic_year_id' => 'required|exists:academic_years,id',
-            'description' => 'nullable|string',
             'start_date' => 'required|date',
             'end_date' => 'required|date|after:start_date',
-            'max_applicants' => 'nullable|integer|min:1',
-            'requirements' => 'nullable|array',
+            'max_candidates' => 'nullable|integer|min:1',
+            'requirements' => 'nullable',
+            'selection_criteria' => 'nullable',
             'is_active' => 'nullable|boolean',
         ]);
 
         $validated['is_active'] = $validated['is_active'] ?? true;
+        $validated['requirements'] = $this->normalizeTextField($validated['requirements'] ?? null);
+        $validated['selection_criteria'] = $this->normalizeTextField($validated['selection_criteria'] ?? null);
         
         $campaign = AdmissionCampaign::create($validated);
         
-        return response()->json($campaign->load(['academicYear', 'program']), 201);
+        return response()->json($campaign->load(['program']), 201);
     }
 
     public function showCampaign(AdmissionCampaign $campaign)
     {
-        return response()->json($campaign->load(['academicYear', 'program']));
+        return response()->json($campaign->load(['program']));
     }
 
     public function updateCampaign(Request $request, AdmissionCampaign $campaign)
@@ -56,18 +65,24 @@ class AdmissionController extends Controller
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'program_id' => 'sometimes|exists:programs,id',
-            'academic_year_id' => 'sometimes|exists:academic_years,id',
-            'description' => 'nullable|string',
             'start_date' => 'sometimes|date',
             'end_date' => 'sometimes|date',
-            'max_applicants' => 'nullable|integer|min:1',
-            'requirements' => 'nullable|array',
+            'max_candidates' => 'nullable|integer|min:1',
+            'requirements' => 'nullable',
+            'selection_criteria' => 'nullable',
             'is_active' => 'nullable|boolean',
         ]);
 
+        if (array_key_exists('requirements', $validated)) {
+            $validated['requirements'] = $this->normalizeTextField($validated['requirements']);
+        }
+        if (array_key_exists('selection_criteria', $validated)) {
+            $validated['selection_criteria'] = $this->normalizeTextField($validated['selection_criteria']);
+        }
+
         $campaign->update($validated);
         
-        return response()->json($campaign->load(['academicYear', 'program']));
+        return response()->json($campaign->load(['program']));
     }
 
     public function destroyCampaign(AdmissionCampaign $campaign)
@@ -79,7 +94,7 @@ class AdmissionController extends Controller
 
     public function activeCampaigns()
     {
-        $campaigns = AdmissionCampaign::with('academicYear', 'program')
+        $campaigns = AdmissionCampaign::with('program')
             ->where('is_active', true)
             ->where('start_date', '<=', now())
             ->where('end_date', '>=', now())
@@ -101,18 +116,20 @@ class AdmissionController extends Controller
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|max:255',
-            'phone' => 'required|string|max:50',
-            'date_of_birth' => 'required|date',
-            'address' => 'required|string',
-            'high_school' => 'required|string|max:255',
-            'high_school_graduation_year' => 'required|integer|min:1900|max:2100',
-            'high_school_grade' => 'nullable|string|max:50',
-            'documents' => 'nullable|array',
+            'phone' => 'nullable|string|max:50',
+            'birth_date' => 'required|date',
+            'birth_place' => 'nullable|string|max:255',
+            'address' => 'nullable|string',
+            'cin' => 'nullable|string|max:50',
+            'baccalaureate_type' => 'nullable|string|max:100',
+            'baccalaureate_score' => 'nullable|numeric|min:0|max:20',
+            'previous_school' => 'nullable|string|max:255',
+            'document_path' => 'nullable|string|max:255',
             'motivation_letter' => 'nullable|string',
         ]);
 
         $validated['campaign_id'] = $campaign->id;
-        $validated['status'] = 'pending';
+        $validated['status'] = 'submitted';
         
         $admission = Admission::create($validated);
         
@@ -123,7 +140,7 @@ class AdmissionController extends Controller
     {
         // For logged in users
         if (Auth::check()) {
-            $admissions = Admission::with('campaign.program', 'campaign.academicYear')
+            $admissions = Admission::with('campaign.program')
                 ->where('email', Auth::user()->email)
                 ->orderBy('created_at', 'desc')
                 ->get();
@@ -136,7 +153,7 @@ class AdmissionController extends Controller
 
     public function admissions(Request $request)
     {
-        $query = Admission::with('campaign.program', 'campaign.academicYear');
+        $query = Admission::with('campaign.program');
         
         if ($request->has('campaign_id')) {
             $query->where('campaign_id', $request->campaign_id);
@@ -162,20 +179,22 @@ class AdmissionController extends Controller
 
     public function showAdmission(Admission $admission)
     {
-        return response()->json($admission->load(['campaign.program', 'campaign.academicYear']));
+        return response()->json($admission->load(['campaign.program']));
     }
 
     public function reviewAdmission(Request $request, Admission $admission)
     {
         $validated = $request->validate([
-            'status' => 'required|in:pending,reviewed,accepted,rejected,waitlisted',
-            'review_notes' => 'nullable|string',
-            'score' => 'nullable|numeric|min:0|max:100',
+            'status' => 'required|in:submitted,under_review,accepted,rejected,waitlisted',
+            'admin_notes' => 'nullable|string',
+            'ranking' => 'nullable|integer|min:1|max:100000',
         ]);
 
-        $admission->update($validated);
+        $payload = $validated;
+        $payload['reviewed_at'] = now();
+        $admission->update($payload);
         
-        return response()->json($admission->load(['campaign.program', 'campaign.academicYear']));
+        return response()->json($admission->load(['campaign.program']));
     }
 
     public function updateAdmission(Request $request, Admission $admission)
@@ -185,18 +204,20 @@ class AdmissionController extends Controller
             'last_name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email|max:255',
             'phone' => 'sometimes|string|max:50',
-            'date_of_birth' => 'sometimes|date',
-            'address' => 'sometimes|string',
-            'high_school' => 'sometimes|string|max:255',
-            'high_school_graduation_year' => 'sometimes|integer|min:1900|max:2100',
-            'high_school_grade' => 'nullable|string|max:50',
-            'documents' => 'nullable|array',
+            'birth_date' => 'sometimes|date',
+            'birth_place' => 'nullable|string|max:255',
+            'address' => 'nullable|string',
+            'cin' => 'nullable|string|max:50',
+            'baccalaureate_type' => 'nullable|string|max:100',
+            'baccalaureate_score' => 'nullable|numeric|min:0|max:20',
+            'previous_school' => 'nullable|string|max:255',
+            'document_path' => 'nullable|string|max:255',
             'motivation_letter' => 'nullable|string',
         ]);
 
         $admission->update($validated);
         
-        return response()->json($admission->load(['campaign.program', 'campaign.academicYear']));
+        return response()->json($admission->load(['campaign.program']));
     }
 
     public function destroyAdmission(Admission $admission)
@@ -209,16 +230,16 @@ class AdmissionController extends Controller
     public function statistics(AdmissionCampaign $campaign)
     {
         $total = $campaign->admissions()->count();
-        $pending = $campaign->admissions()->where('status', 'pending')->count();
-        $reviewed = $campaign->admissions()->where('status', 'reviewed')->count();
+        $submitted = $campaign->admissions()->where('status', 'submitted')->count();
+        $underReview = $campaign->admissions()->where('status', 'under_review')->count();
         $accepted = $campaign->admissions()->where('status', 'accepted')->count();
         $rejected = $campaign->admissions()->where('status', 'rejected')->count();
         $waitlisted = $campaign->admissions()->where('status', 'waitlisted')->count();
         
         return response()->json([
             'total' => $total,
-            'pending' => $pending,
-            'reviewed' => $reviewed,
+            'submitted' => $submitted,
+            'under_review' => $underReview,
             'accepted' => $accepted,
             'rejected' => $rejected,
             'waitlisted' => $waitlisted,

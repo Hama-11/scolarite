@@ -10,9 +10,16 @@ use App\Models\Group;
 use App\Models\TutoringSession;
 use App\Models\Request as TutoringRequest;
 use App\Models\RequestStatusHistory;
+use App\Models\Course;
+use App\Models\Schedule;
+use App\Models\Grade;
+use App\Models\Payment;
+use App\Models\CourseEnrollment;
+use App\Models\ScheduleConflict;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class StatisticsController extends Controller
 {
@@ -40,10 +47,23 @@ class StatisticsController extends Controller
         $activeGroups = Group::where('status', 'active')->count();
         $professors = Professor::count();
         $students = Student::count();
+        $courses = Course::count();
+        $activeCourses = Course::where('is_active', true)->count();
+        $totalSchedules = Schedule::count();
+        $scheduleConflicts = ScheduleConflict::count();
+        $totalEnrollments = CourseEnrollment::count();
+        $approvedEnrollments = CourseEnrollment::where('status', 'active')->count();
+        $totalGrades = Grade::count();
+        $paidPayments = Payment::where('status', 'completed')->count();
+        $totalPayments = Payment::count();
 
         $startOfMonth = Carbon::now()->startOfMonth();
         $endOfMonth = Carbon::now()->endOfMonth();
         $sessionsThisMonth = TutoringSession::whereBetween('scheduled_at', [$startOfMonth, $endOfMonth])->count();
+        $scheduleRowsThisMonth = Schedule::where(function ($q) use ($startOfMonth, $endOfMonth) {
+            $q->whereBetween('start_date', [$startOfMonth->toDateString(), $endOfMonth->toDateString()])
+                ->orWhereBetween('end_date', [$startOfMonth->toDateString(), $endOfMonth->toDateString()]);
+        })->count();
 
         $pendingRequests = TutoringRequest::where('status', 'pending')->count();
 
@@ -53,8 +73,8 @@ class StatisticsController extends Controller
             ? (int) round(($attendancePresent / max($attendanceTotal, 1)) * 100)
             : 0;
 
-        $sessionsByMonth = TutoringSession::selectRaw('MONTH(scheduled_at) as month, COUNT(*) as count')
-            ->whereYear('scheduled_at', Carbon::now()->year)
+        $sessionsByMonth = Schedule::selectRaw('MONTH(COALESCE(start_date, created_at)) as month, COUNT(*) as count')
+            ->whereYear(DB::raw('COALESCE(start_date, created_at)'), Carbon::now()->year)
             ->groupBy('month')
             ->pluck('count', 'month')
             ->toArray();
@@ -64,10 +84,10 @@ class StatisticsController extends Controller
             $monthData[] = $sessionsByMonth[$month] ?? 0;
         }
 
-        $sessionTypesQuery = TutoringSession::where('status', 'completed')
-            ->selectRaw("SUM(CASE WHEN type = 'presential' THEN 1 ELSE 0 END) as presential")
-            ->selectRaw("SUM(CASE WHEN type = 'online' THEN 1 ELSE 0 END) as online")
-            ->selectRaw("SUM(CASE WHEN type = 'mixed' THEN 1 ELSE 0 END) as mixed")
+        $sessionTypesQuery = Schedule::query()
+            ->selectRaw("SUM(CASE WHEN session_type = 'cours' THEN 1 ELSE 0 END) as cours")
+            ->selectRaw("SUM(CASE WHEN session_type = 'td' THEN 1 ELSE 0 END) as td")
+            ->selectRaw("SUM(CASE WHEN session_type = 'tp' THEN 1 ELSE 0 END) as tp")
             ->selectRaw('COUNT(*) as total')
             ->first();
 
@@ -81,28 +101,32 @@ class StatisticsController extends Controller
             ];
         } else {
             $sessionTypes = [
-                'presential' => (int) round((($sessionTypesQuery->presential ?? 0) / $totalTyped) * 100),
-                'online' => (int) round((($sessionTypesQuery->online ?? 0) / $totalTyped) * 100),
-                'mixed' => (int) round((($sessionTypesQuery->mixed ?? 0) / $totalTyped) * 100),
+                'presential' => (int) round((($sessionTypesQuery->cours ?? 0) / $totalTyped) * 100),
+                'online' => (int) round((($sessionTypesQuery->td ?? 0) / $totalTyped) * 100),
+                'mixed' => (int) round((($sessionTypesQuery->tp ?? 0) / $totalTyped) * 100),
                 'total' => $totalTyped,
             ];
         }
 
         $recentGroups = Group::select('groups.*')
             ->with('professor.user')
-            ->leftJoin('tutoring_requests', function ($join) {
-                $join->on('groups.id', '=', 'tutoring_requests.group_id')
-                    ->where('tutoring_requests.status', '=', 'approved');
+            ->leftJoin('requests', function ($join) {
+                $join->on('groups.id', '=', 'requests.group_id')
+                    ->where('requests.status', '=', 'approved');
             })
             ->orderBy('groups.created_at', 'desc')
             ->limit(5)
             ->get()
             ->map(function ($group) {
+                $approvedCount = TutoringRequest::where('group_id', $group->id)
+                    ->where('status', 'approved')
+                    ->count();
+
                 return [
                     'name' => $group->name,
                     'dept' => $group->departement,
                     'tutor' => optional(optional($group->professor)->user)->name ?? 'N/A',
-                    'students' => $group->student_count ?? 0,
+                    'students' => $approvedCount,
                     'max' => $group->max_students,
                     'status' => $group->status,
                 ];
@@ -130,8 +154,17 @@ class StatisticsController extends Controller
                 'professors' => $professors,
                 'students' => $students,
                 'sessions_this_month' => $sessionsThisMonth,
+                'schedules_this_month' => $scheduleRowsThisMonth,
                 'pending_requests' => $pendingRequests,
                 'attendance_rate' => $attendanceRate,
+                'courses' => $courses,
+                'active_courses' => $activeCourses,
+                'total_schedules' => $totalSchedules,
+                'schedule_conflicts' => $scheduleConflicts,
+                'total_enrollments' => $totalEnrollments,
+                'approved_enrollments' => $approvedEnrollments,
+                'total_grades' => $totalGrades,
+                'payment_success_rate' => $totalPayments > 0 ? (int) round(($paidPayments / $totalPayments) * 100) : 0,
             ],
             'sessions_by_month' => $monthData,
             'session_types' => $sessionTypes,
@@ -157,6 +190,7 @@ class StatisticsController extends Controller
                 'color' => 'purple',
                 'text' => "Nouveau groupe «{$group->name}» créé",
                 'time' => $group->created_at->diffForHumans(),
+                'timestamp' => $group->created_at->timestamp,
             ];
         }
 
@@ -174,6 +208,7 @@ class StatisticsController extends Controller
                     'color' => 'green',
                     'text' => "Inscription acceptée: {$studentName}",
                     'time' => $request->updated_at->diffForHumans(),
+                    'timestamp' => $request->updated_at->timestamp,
                 ];
             } elseif ($request->status === 'rejected') {
                 $activities[] = [
@@ -181,16 +216,20 @@ class StatisticsController extends Controller
                     'color' => 'red',
                     'text' => "Inscription refusée: {$studentName}",
                     'time' => $request->updated_at->diffForHumans(),
+                    'timestamp' => $request->updated_at->timestamp,
                 ];
             }
         }
 
-        // Sort by time
+        // Sort by actual timestamp (not localized display string)
         usort($activities, function ($a, $b) {
-            return strcmp($a['time'], $b['time']);
+            return ($b['timestamp'] ?? 0) <=> ($a['timestamp'] ?? 0);
         });
 
-        return array_slice($activities, 0, 5);
+        return array_values(array_map(function ($row) {
+            unset($row['timestamp']);
+            return $row;
+        }, array_slice($activities, 0, 5)));
     }
 
     public function getGroups()
