@@ -16,13 +16,25 @@ class Program extends Model
         'code',
         'description',
         'department_id',
+        'academic_year_id',
         'level',
         'duration_years',
+        'credits_required',
+        'is_active',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
     ];
 
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    public function academicYear(): BelongsTo
+    {
+        return $this->belongsTo(AcademicYear::class);
     }
 
     public function courses(): HasMany

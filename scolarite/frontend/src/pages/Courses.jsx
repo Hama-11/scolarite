@@ -30,7 +30,7 @@ export default function Courses() {
   useEffect(() => {
     let mounted = true;
     async function loadPrograms() {
-      if (!isAdmin()) return;
+      if (!(isAdmin() || isProfessor())) return;
       try {
         const res = await adminService.getPrograms({ per_page: 200 });
         const payload = res?.data;
@@ -44,7 +44,7 @@ export default function Courses() {
     return () => {
       mounted = false;
     };
-  }, [isAdmin]);
+  }, [isAdmin, isProfessor]);
 
   const fetchCourses = useCallback(async () => {
     try {
@@ -148,7 +148,7 @@ export default function Courses() {
           <h2>Cours</h2>
           <p>Gerez vos cours et les inscriptions depuis cet espace.</p>
         </div>
-        {isAdmin() && (
+        {(isAdmin() || isProfessor()) && (
           <Button onClick={openNewModal}>
             Ajouter un cours
           </Button>
