@@ -17,9 +17,6 @@ const navConfig = {
         { icon: "📄", label: "Demandes documents", path: "/admin/official-requests" },
         { icon: "⚖️", label: "Litiges de notes", path: "/admin/conception-grade-disputes" },
         { icon: "🚀", label: "Hub modernisation", path: "/admin/modernization" },
-        { icon: "👥", label: "Groupes de tutorat", path: "/groups" },
-        { icon: "📅", label: "Séances", path: "/sessions" },
-        { icon: "📋", label: "Demandes", path: "/requests" },
       ],
     },
     {

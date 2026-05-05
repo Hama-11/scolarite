@@ -13,7 +13,7 @@ export default function DirectorRoute({ children }) {
     );
   }
 
-  if (![ROLE.DIRECTEUR, ROLE.ADMIN].includes(canonicalRole)) {
+  if (canonicalRole !== ROLE.DIRECTEUR) {
     return <Navigate to="/dashboard" replace />;
   }
 

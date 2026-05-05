@@ -3,14 +3,19 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Course;
-use App\Models\Student;
-use Carbon\Carbon;
+use App\Services\ModernizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ModernizationController extends Controller
 {
+    private ModernizationService $modernizationService;
+
+    public function __construct(ModernizationService $modernizationService)
+    {
+        $this->modernizationService = $modernizationService;
+    }
+
     public function submitEnrollment(Request $request)
     {
         $data = $request->validate([
@@ -20,62 +25,13 @@ class ModernizationController extends Controller
             'enrollment_window_id' => 'nullable|exists:enrollment_windows,id',
         ]);
 
-        $student = Student::findOrFail($data['student_id']);
-        $course = Course::findOrFail($data['course_id']);
-
-        $now = Carbon::now()->toDateString();
-        $windowOk = DB::table('enrollment_windows')
-            ->when(isset($data['enrollment_window_id']), fn ($q) => $q->where('id', $data['enrollment_window_id']))
-            ->whereDate('start_date', '<=', $now)
-            ->whereDate('end_date', '>=', $now)
-            ->exists();
-
-        $capacity = DB::table('groups')
-            ->where('status', 'active')
-            ->avg('max_students');
-        $currentCount = DB::table('course_enrollments')->where('course_id', $course->id)->count();
-        $capacityOk = $capacity ? $currentCount < (int) round($capacity) : true;
-
-        $prereqOk = true;
-        if (!empty($course->prerequisites)) {
-            $prereqCodes = array_filter(array_map('trim', explode(',', (string) $course->prerequisites)));
-            if (!empty($prereqCodes)) {
-                $done = DB::table('course_enrollments as ce')
-                    ->join('courses as c', 'c.id', '=', 'ce.course_id')
-                    ->where('ce.student_id', $student->id)
-                    ->where('ce.status', 'completed')
-                    ->whereIn('c.code', $prereqCodes)
-                    ->count();
-                $prereqOk = $done >= count($prereqCodes);
-            }
+        try {
+            $result = $this->modernizationService->submitEnrollment($data);
+            return response()->json($result, 201);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['message' => 'Failed to submit enrollment request'], 500);
         }
-
-        $status = ($windowOk && $capacityOk && $prereqOk) ? 'pending_approval' : 'submitted';
-
-        $row = DB::table('enrollment_requests')->insertGetId([
-            'student_id' => $student->id,
-            'course_id' => $course->id,
-            'academic_year_id' => $data['academic_year_id'] ?? null,
-            'enrollment_window_id' => $data['enrollment_window_id'] ?? null,
-            'status' => $status,
-            'auto_checks' => json_encode([
-                'window_ok' => $windowOk,
-                'capacity_ok' => $capacityOk,
-                'prerequisites_ok' => $prereqOk,
-            ]),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        return response()->json([
-            'id' => $row,
-            'status' => $status,
-            'checks' => [
-                'window_ok' => $windowOk,
-                'capacity_ok' => $capacityOk,
-                'prerequisites_ok' => $prereqOk,
-            ],
-        ], 201);
     }
 
     public function decideEnrollment(Request $request, int $id)
@@ -85,19 +41,35 @@ class ModernizationController extends Controller
             'admin_note' => 'nullable|string|max:1000',
         ]);
 
-        $updated = DB::table('enrollment_requests')
-            ->where('id', $id)
-            ->update([
+        try {
+            $row = DB::table('enrollment_requests')->where('id', $id)->first();
+            if (!$row) {
+                return response()->json(['message' => 'Enrollment request not found'], 404);
+            }
+
+            $current = (string) $row->status;
+            $allowedTransitions = [
+                'submitted' => ['approved', 'rejected'],
+                'pending_approval' => ['approved', 'rejected'],
+                'approved' => ['finalized'],
+            ];
+            if (!in_array($data['decision'], $allowedTransitions[$current] ?? [], true)) {
+                return response()->json([
+                    'message' => "Invalid transition from {$current} to {$data['decision']}",
+                ], 422);
+            }
+
+            DB::table('enrollment_requests')->where('id', $id)->update([
                 'status' => $data['decision'],
                 'admin_note' => $data['admin_note'] ?? null,
                 'updated_at' => now(),
             ]);
 
-        if (!$updated) {
-            return response()->json(['message' => 'Enrollment request not found'], 404);
+            return response()->json(['message' => 'Decision applied']);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['message' => 'Failed to apply decision'], 500);
         }
-
-        return response()->json(['message' => 'Decision applied']);
     }
 
     public function createAcademicPath(Request $request)
@@ -110,17 +82,29 @@ class ModernizationController extends Controller
             'custom_rules' => 'nullable|array',
         ]);
 
-        $id = DB::table('academic_paths')->insertGetId([
-            'student_id' => $data['student_id'],
-            'title' => $data['title'],
-            'target_ects' => $data['target_ects'] ?? 180,
-            'validated_ects' => $data['validated_ects'] ?? 0,
-            'custom_rules' => isset($data['custom_rules']) ? json_encode($data['custom_rules']) : null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        try {
+            $existing = DB::table('academic_paths')
+                ->where('student_id', $data['student_id'])
+                ->where('title', $data['title'])
+                ->exists();
+            if ($existing) {
+                return response()->json(['message' => 'Academic path with same title already exists for this student'], 422);
+            }
 
-        return response()->json(['id' => $id], 201);
+            $id = DB::table('academic_paths')->insertGetId([
+                'student_id' => $data['student_id'],
+                'title' => $data['title'],
+                'target_ects' => $data['target_ects'] ?? 180,
+                'validated_ects' => $data['validated_ects'] ?? 0,
+                'custom_rules' => isset($data['custom_rules']) ? json_encode($data['custom_rules']) : null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            return response()->json(['id' => $id], 201);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['message' => 'Failed to create academic path'], 500);
+        }
     }
 
     public function resolveScheduleConflicts()
@@ -147,13 +131,13 @@ class ModernizationController extends Controller
             'semester_id' => 'nullable|integer',
         ]);
 
-        // lightweight optimization helper, keeps existing data intact
-        $conflictCount = DB::table('schedule_conflicts')->count();
-        return response()->json([
-            'status' => 'generated',
-            'score' => max(0, 100 - ($conflictCount * 5)),
-            'message' => 'Optimization proposal generated. Apply manually after review.',
-        ]);
+        try {
+            $result = $this->modernizationService->optimizeSchedule($request->integer('semester_id'));
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['message' => 'Failed to optimize schedule'], 500);
+        }
     }
 
     public function createExamSubjectVersion(Request $request)
@@ -169,19 +153,23 @@ class ModernizationController extends Controller
             ->where('course_id', $data['course_id'])
             ->max('version_no');
 
-        $id = DB::table('exam_subject_versions')->insertGetId([
-            'course_id' => $data['course_id'],
-            'created_by' => auth()->id() ?: 1,
-            'title' => $data['title'],
-            'content' => $data['content'],
-            'confidentiality' => $data['confidentiality'] ?? 'secret',
-            'version_no' => ((int) $last) + 1,
-            'is_published' => false,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        return response()->json(['id' => $id], 201);
+        try {
+            $id = DB::table('exam_subject_versions')->insertGetId([
+                'course_id' => $data['course_id'],
+                'created_by' => auth()->id() ?: 1,
+                'title' => $data['title'],
+                'content' => $data['content'],
+                'confidentiality' => $data['confidentiality'] ?? 'secret',
+                'version_no' => ((int) $last) + 1,
+                'is_published' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            return response()->json(['id' => $id], 201);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['message' => 'Failed to create subject version'], 500);
+        }
     }
 
     public function publishExamResults(Request $request, int $sessionId)
@@ -190,10 +178,21 @@ class ModernizationController extends Controller
             'audience' => 'nullable|in:students,professors,all',
         ]);
 
-        DB::table('exam_sessions')->where('id', $sessionId)->update([
+        $updated = DB::table('exam_sessions')->where('id', $sessionId)->update([
             'status' => 'approved',
             'updated_at' => now(),
         ]);
+        if (!$updated) {
+            return response()->json(['message' => 'Exam session not found'], 404);
+        }
+
+        DB::table('exam_subject_versions')
+            ->where('course_id', function ($q) use ($sessionId) {
+                $q->select('course_id')->from('exam_sessions')->where('id', $sessionId)->limit(1);
+            })
+            ->orderByDesc('version_no')
+            ->limit(1)
+            ->update(['is_published' => true, 'updated_at' => now()]);
 
         return response()->json(['message' => 'Results published securely']);
     }
@@ -204,6 +203,11 @@ class ModernizationController extends Controller
             'signature_provider' => 'nullable|string|max:100',
             'signature_ref' => 'nullable|string|max:255',
         ]);
+
+        $exists = DB::table('exam_sessions')->where('id', $sessionId)->exists();
+        if (!$exists) {
+            return response()->json(['message' => 'Exam session not found'], 404);
+        }
 
         $id = DB::table('pv_documents')->insertGetId([
             'exam_session_id' => $sessionId,

@@ -493,7 +493,7 @@ Route::prefix('v2')->middleware(['auth:sanctum', 'role:admin,enseignant,directeu
 // ============================================
 // Director of studies (academic workflows)
 // ============================================
-Route::middleware(['auth:sanctum', 'role:admin,directeur_etudes'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:directeur_etudes'])->group(function () {
     Route::get('/director/grades/pending', [DirectorAcademicController::class, 'pendingGrades']);
     Route::post('/director/grades/{grade}/validate', [DirectorAcademicController::class, 'validateGrade']);
     Route::post('/director/grades/validate-bulk', [DirectorAcademicController::class, 'validateGradesBulk']);

@@ -3,19 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
-use App\Models\Student;
-use App\Models\Professor;
-use App\Models\Group;
-use App\Models\TutoringSession;
-use App\Models\Request as TutoringRequest;
-use App\Models\RequestStatusHistory;
+use App\Models\AcademicModule;
 use App\Models\Course;
-use App\Models\Schedule;
+use App\Models\CourseEnrollment;
+use App\Models\Department;
+use App\Models\Faculty;
 use App\Models\Grade;
 use App\Models\Payment;
-use App\Models\CourseEnrollment;
+use App\Models\Professor;
+use App\Models\Program;
+use App\Models\Schedule;
 use App\Models\ScheduleConflict;
+use App\Models\Student;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -23,10 +22,6 @@ use Illuminate\Support\Facades\DB;
 
 class StatisticsController extends Controller
 {
-    /**
-     * Combined dashboard endpoint - fetches all stats in one request
-     * This replaces 6 separate API calls with a single optimized request
-     */
     public function getDashboard()
     {
         $cacheKey = 'dashboard_stats_' . date('Y-m-d-H');
@@ -39,12 +34,13 @@ class StatisticsController extends Controller
         return response()->json($data);
     }
 
-    /**
-     * Données du dashboard (tableau sérialisable — ne pas mettre de Response dans le cache).
-     */
     private function compileDashboardPayload(): array
     {
-        $activeGroups = Group::where('status', 'active')->count();
+        $faculties = Faculty::count();
+        $departments = Department::count();
+        $programs = Program::count();
+        $activePrograms = Program::where('is_active', true)->count();
+        $modules = AcademicModule::count();
         $professors = Professor::count();
         $students = Student::count();
         $courses = Course::count();
@@ -59,13 +55,14 @@ class StatisticsController extends Controller
 
         $startOfMonth = Carbon::now()->startOfMonth();
         $endOfMonth = Carbon::now()->endOfMonth();
-        $sessionsThisMonth = TutoringSession::whereBetween('scheduled_at', [$startOfMonth, $endOfMonth])->count();
         $scheduleRowsThisMonth = Schedule::where(function ($q) use ($startOfMonth, $endOfMonth) {
             $q->whereBetween('start_date', [$startOfMonth->toDateString(), $endOfMonth->toDateString()])
                 ->orWhereBetween('end_date', [$startOfMonth->toDateString(), $endOfMonth->toDateString()]);
         })->count();
 
-        $pendingRequests = TutoringRequest::where('status', 'pending')->count();
+        $pendingRequests = DB::table('enrollment_requests')
+            ->whereIn('status', ['submitted', 'pending_approval'])
+            ->count();
 
         $attendanceTotal = \App\Models\Attendance::count();
         $attendancePresent = \App\Models\Attendance::where('status', 'present')->count();
@@ -108,40 +105,37 @@ class StatisticsController extends Controller
             ];
         }
 
-        $recentGroups = Group::select('groups.*')
-            ->with('professor.user')
-            ->leftJoin('requests', function ($join) {
-                $join->on('groups.id', '=', 'requests.group_id')
-                    ->where('requests.status', '=', 'approved');
-            })
-            ->orderBy('groups.created_at', 'desc')
+        $recentGroups = Program::with('department.faculty')
+            ->orderByDesc('created_at')
             ->limit(5)
             ->get()
-            ->map(function ($group) {
-                $approvedCount = TutoringRequest::where('group_id', $group->id)
-                    ->where('status', 'approved')
-                    ->count();
-
+            ->map(function ($program) {
+                $enrolled = CourseEnrollment::whereHas('course', function ($q) use ($program) {
+                    $q->where('program_id', $program->id);
+                })->where('status', 'active')->count();
                 return [
-                    'name' => $group->name,
-                    'dept' => $group->departement,
-                    'tutor' => optional(optional($group->professor)->user)->name ?? 'N/A',
-                    'students' => $approvedCount,
-                    'max' => $group->max_students,
-                    'status' => $group->status,
+                    'name' => $program->name,
+                    'dept' => optional($program->department)->name ?? 'N/A',
+                    'tutor' => optional(optional($program->department)->faculty)->name ?? 'N/A',
+                    'students' => $enrolled,
+                    'max' => null,
+                    'status' => $program->is_active ? 'active' : 'inactive',
                 ];
             });
 
-        $pendingRequestsList = TutoringRequest::with(['student.user', 'group'])
-            ->where('status', 'pending')
+        $pendingRequestsList = DB::table('enrollment_requests')
+            ->join('students', 'students.id', '=', 'enrollment_requests.student_id')
+            ->join('courses', 'courses.id', '=', 'enrollment_requests.course_id')
+            ->whereIn('enrollment_requests.status', ['submitted', 'pending_approval'])
+            ->select('students.name as student_name', 'courses.name as course_name', 'enrollment_requests.created_at', 'enrollment_requests.status')
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get()
             ->map(function ($request) {
                 return [
-                    'name' => optional(optional($request->student)->user)->name ?? 'N/A',
-                    'group' => optional($request->group)->name ?? 'N/A',
-                    'date' => $request->created_at->format('d/m/Y'),
+                    'name' => $request->student_name ?? 'N/A',
+                    'group' => $request->course_name ?? 'N/A',
+                    'date' => Carbon::parse($request->created_at)->format('d/m/Y'),
                     'status' => $request->status,
                 ];
             });
@@ -150,10 +144,13 @@ class StatisticsController extends Controller
 
         return [
             'stats' => [
-                'active_groups' => $activeGroups,
+                'active_groups' => $activePrograms,
+                'faculties' => $faculties,
+                'departments' => $departments,
+                'programs' => $programs,
+                'modules' => $modules,
                 'professors' => $professors,
                 'students' => $students,
-                'sessions_this_month' => $sessionsThisMonth,
                 'schedules_this_month' => $scheduleRowsThisMonth,
                 'pending_requests' => $pendingRequests,
                 'attendance_rate' => $attendanceRate,
@@ -181,42 +178,42 @@ class StatisticsController extends Controller
     {
         $activities = [];
 
-        // Get recent groups
-        $recentGroups = Group::orderBy('created_at', 'desc')->limit(2)->get();
-
-        foreach ($recentGroups as $group) {
+        $recentPrograms = Program::orderByDesc('created_at')->limit(3)->get();
+        foreach ($recentPrograms as $program) {
             $activities[] = [
-                'icon' => '👥',
+                'icon' => '🎓',
                 'color' => 'purple',
-                'text' => "Nouveau groupe «{$group->name}» créé",
-                'time' => $group->created_at->diffForHumans(),
-                'timestamp' => $group->created_at->timestamp,
+                'text' => "Nouveau programme «{$program->name}» créé",
+                'time' => $program->created_at->diffForHumans(),
+                'timestamp' => $program->created_at->timestamp,
             ];
         }
 
-        // Get recent requests - optimized
-        $recentRequests = TutoringRequest::with(['student.user', 'group'])
-            ->orderBy('updated_at', 'desc')
+        $recentEnrollmentDecisions = DB::table('enrollment_requests')
+            ->join('students', 'students.id', '=', 'enrollment_requests.student_id')
+            ->whereIn('enrollment_requests.status', ['approved', 'rejected'])
+            ->orderByDesc('enrollment_requests.updated_at')
+            ->select('students.name as student_name', 'enrollment_requests.status', 'enrollment_requests.updated_at')
             ->limit(3)
             ->get();
 
-        foreach ($recentRequests as $request) {
-            $studentName = optional(optional($request->student)->user)->name ?? 'N/A';
-            if ($request->status === 'approved') {
+        foreach ($recentEnrollmentDecisions as $decision) {
+            $studentName = $decision->student_name ?? 'N/A';
+            if ($decision->status === 'approved') {
                 $activities[] = [
                     'icon' => '✅',
                     'color' => 'green',
-                    'text' => "Inscription acceptée: {$studentName}",
-                    'time' => $request->updated_at->diffForHumans(),
-                    'timestamp' => $request->updated_at->timestamp,
+                    'text' => "Inscription validée: {$studentName}",
+                    'time' => Carbon::parse($decision->updated_at)->diffForHumans(),
+                    'timestamp' => Carbon::parse($decision->updated_at)->timestamp,
                 ];
-            } elseif ($request->status === 'rejected') {
+            } elseif ($decision->status === 'rejected') {
                 $activities[] = [
                     'icon' => '❌',
                     'color' => 'red',
                     'text' => "Inscription refusée: {$studentName}",
-                    'time' => $request->updated_at->diffForHumans(),
-                    'timestamp' => $request->updated_at->timestamp,
+                    'time' => Carbon::parse($decision->updated_at)->diffForHumans(),
+                    'timestamp' => Carbon::parse($decision->updated_at)->timestamp,
                 ];
             }
         }
@@ -234,27 +231,26 @@ class StatisticsController extends Controller
 
     public function getGroups()
     {
-        $cacheKey = 'groups_list';
+        $cacheKey = 'academic_programs_list';
         
         $data = Cache::remember($cacheKey, 300, function () {
-            return Group::with('professor.user')
+            return Program::with('department.faculty')
                 ->get()
-                ->map(function ($group) {
-                    $studentCount = TutoringRequest::where('group_id', $group->id)
-                        ->where('status', 'approved')
-                        ->count();
-
+                ->map(function ($program) {
+                    $studentCount = CourseEnrollment::whereHas('course', function ($q) use ($program) {
+                        $q->where('program_id', $program->id);
+                    })->where('status', 'active')->count();
                     return [
-                        'id' => $group->id,
-                        'name' => $group->name,
-                        'dept' => $group->departement,
-                        'tutor' => optional(optional($group->professor)->user)->name ?? 'N/A',
-                        'tutor_id' => optional($group->professor)->id,
+                        'id' => $program->id,
+                        'name' => $program->name,
+                        'dept' => optional($program->department)->name ?? 'N/A',
+                        'tutor' => optional(optional($program->department)->faculty)->name ?? 'N/A',
+                        'tutor_id' => optional(optional($program->department)->faculty)->id,
                         'students' => $studentCount,
-                        'max' => $group->max_students,
-                        'type' => 'presentiel',
-                        'status' => $group->status,
-                        'created' => $group->created_at->format('d/m/Y'),
+                        'max' => null,
+                        'type' => 'academic_program',
+                        'status' => $program->is_active ? 'active' : 'inactive',
+                        'created' => optional($program->created_at)->format('d/m/Y'),
                     ];
                 });
         });
@@ -285,24 +281,40 @@ class StatisticsController extends Controller
     {
         $data = $request->validate([
             'name' => 'required|string|max:255',
-            'departement' => 'required|string|max:255',
-            'professor_id' => 'required|exists:professors,id',
-            'max_students' => 'required|integer|min:1|max:50',
+            'code' => 'required|string|max:20',
+            'department_id' => 'required|exists:departments,id',
+            'academic_year_id' => 'nullable|exists:academic_years,id',
+            'duration_years' => 'nullable|integer|min:1|max:10',
+            'credits_required' => 'nullable|integer|min:1|max:300',
         ]);
 
-        $group = Group::create($data);
+        $program = Program::create([
+            'name' => $data['name'],
+            'code' => $data['code'],
+            'department_id' => $data['department_id'],
+            'academic_year_id' => $data['academic_year_id'] ?? null,
+            'duration_years' => $data['duration_years'] ?? 3,
+            'credits_required' => $data['credits_required'] ?? 180,
+            'is_active' => true,
+        ]);
         
-        // Clear cache when new group is created
-        Cache::forget('groups_list');
+        Cache::forget('academic_programs_list');
         Cache::forget('dashboard_stats_' . date('Y-m-d-H'));
         
-        return response()->json($group, 201);
+        return response()->json($program, 201);
     }
 
     public function getAllRequests()
     {
-        $requests = TutoringRequest::with(['student.user', 'group'])
-            ->orderBy('created_at', 'desc')
+        $requests = DB::table('enrollment_requests')
+            ->join('students', 'students.id', '=', 'enrollment_requests.student_id')
+            ->join('courses', 'courses.id', '=', 'enrollment_requests.course_id')
+            ->select(
+                'enrollment_requests.*',
+                'students.name as student_name',
+                'courses.name as course_name'
+            )
+            ->orderByDesc('enrollment_requests.created_at')
             ->paginate(20);
         
         return response()->json($requests);
@@ -310,44 +322,35 @@ class StatisticsController extends Controller
 
     public function updateRequestStatus(Request $request, $id)
     {
-        $requestData = TutoringRequest::findOrFail($id);
-
         $validated = $request->validate([
-            'status' => 'required|in:draft,submitted,in_review,approved,rejected,archived,pending',
+            'status' => 'required|in:draft,submitted,auto_checked,pending_approval,approved,rejected,finalized',
             'comment' => 'nullable|string|max:1000',
         ]);
 
-        $fromStatus = (string) $requestData->status;
-        $toStatus = (string) $validated['status'];
-
-        $requestData->status = $toStatus;
-        if ($toStatus === 'submitted' && !$requestData->submitted_at) {
-            $requestData->submitted_at = now();
+        $updated = DB::table('enrollment_requests')
+            ->where('id', $id)
+            ->update([
+                'status' => $validated['status'],
+                'admin_note' => $validated['comment'] ?? null,
+                'updated_at' => now(),
+            ]);
+        if (!$updated) {
+            return response()->json(['message' => 'Request not found'], 404);
         }
-        $requestData->save();
-
-        RequestStatusHistory::create([
-            'request_id' => $requestData->id,
-            'from_status' => $fromStatus,
-            'to_status' => $toStatus,
-            'changed_by' => optional(auth()->user())->id,
-            'comment' => $validated['comment'] ?? null,
-        ]);
         
-        // Clear cache
         Cache::forget('dashboard_stats_' . date('Y-m-d-H'));
         
-        return response()->json(['success' => true, 'status' => $toStatus]);
+        return response()->json(['success' => true, 'status' => $validated['status']]);
     }
 
     public function getDirectionDashboard()
     {
         $totalStudents = Student::count();
         $totalProfessors = Professor::count();
-        $activeGroups = Group::where('status', 'active')->count();
-        $sessionsThisMonth = TutoringSession::whereBetween('scheduled_at', [Carbon::now()->startOfMonth(), Carbon::now()->endOfMonth()])->count();
-        $pendingRequests = TutoringRequest::whereIn('status', ['pending', 'submitted', 'in_review'])->count();
-        $approvedRequests = TutoringRequest::where('status', 'approved')->count();
+        $activeGroups = Program::where('is_active', true)->count();
+        $sessionsThisMonth = Schedule::whereBetween('start_date', [Carbon::now()->startOfMonth(), Carbon::now()->endOfMonth()])->count();
+        $pendingRequests = DB::table('enrollment_requests')->whereIn('status', ['submitted', 'pending_approval'])->count();
+        $approvedRequests = DB::table('enrollment_requests')->where('status', 'approved')->count();
         $approvalRate = ($pendingRequests + $approvedRequests) > 0
             ? round(($approvedRequests / ($pendingRequests + $approvedRequests)) * 100, 2)
             : 0.0;
@@ -364,16 +367,16 @@ class StatisticsController extends Controller
 
     public function getQualityDashboard()
     {
-        $requestItems = TutoringRequest::query()
-            ->whereNotNull('submitted_at')
-            ->whereIn('status', ['approved', 'rejected', 'archived'])
+        $requestItems = DB::table('enrollment_requests')
+            ->whereIn('status', ['approved', 'rejected', 'finalized'])
             ->get();
 
         $resolvedWithinSla = 0;
         foreach ($requestItems as $item) {
-            $resolvedAt = $item->updated_at;
-            $deadline = optional($item->submitted_at)->copy()->addHours((int) ($item->sla_hours ?? 72));
-            if ($deadline && $resolvedAt && $resolvedAt->lessThanOrEqualTo($deadline)) {
+            $created = Carbon::parse($item->created_at);
+            $resolvedAt = Carbon::parse($item->updated_at);
+            $deadline = $created->copy()->addHours(72);
+            if ($resolvedAt->lessThanOrEqualTo($deadline)) {
                 $resolvedWithinSla++;
             }
         }
@@ -396,8 +399,8 @@ class StatisticsController extends Controller
 
     public function getAllSessions()
     {
-        $sessions = TutoringSession::with('group.professor.user')
-            ->orderBy('scheduled_at', 'asc')
+        $sessions = Schedule::with(['course', 'professor.user', 'room'])
+            ->orderBy('start_date', 'asc')
             ->paginate(20);
         
         return response()->json($sessions);
@@ -408,15 +411,11 @@ class StatisticsController extends Controller
         $cacheKey = 'stats_summary';
 
         $data = Cache::remember($cacheKey, 300, function () {
-            $activeGroups = Group::where('status', 'active')->count();
+            $activeGroups = Program::where('is_active', true)->count();
             $professors = Professor::count();
             $students = Student::count();
-
-            $startOfMonth = Carbon::now()->startOfMonth();
-            $endOfMonth = Carbon::now()->endOfMonth();
-            $sessionsThisMonth = TutoringSession::whereBetween('scheduled_at', [$startOfMonth, $endOfMonth])->count();
-
-            $pendingRequests = TutoringRequest::where('status', 'pending')->count();
+            $sessionsThisMonth = Schedule::whereBetween('start_date', [Carbon::now()->startOfMonth(), Carbon::now()->endOfMonth()])->count();
+            $pendingRequests = DB::table('enrollment_requests')->whereIn('status', ['submitted', 'pending_approval'])->count();
 
             $attendanceTotal = \App\Models\Attendance::count();
             $attendancePresent = \App\Models\Attendance::where('status', 'present')->count();
@@ -442,8 +441,8 @@ class StatisticsController extends Controller
         $cacheKey = 'sessions_by_month_' . date('Y-m');
 
         $monthData = Cache::remember($cacheKey, 3600, function () {
-            $sessionsByMonth = TutoringSession::selectRaw('MONTH(scheduled_at) as month, COUNT(*) as count')
-                ->whereYear('scheduled_at', Carbon::now()->year)
+            $sessionsByMonth = Schedule::selectRaw('MONTH(COALESCE(start_date, created_at)) as month, COUNT(*) as count')
+                ->whereYear(DB::raw('COALESCE(start_date, created_at)'), Carbon::now()->year)
                 ->groupBy('month')
                 ->pluck('count', 'month')
                 ->toArray();
@@ -464,10 +463,10 @@ class StatisticsController extends Controller
         $cacheKey = 'session_types';
 
         $data = Cache::remember($cacheKey, 3600, function () {
-            $sessionTypesQuery = TutoringSession::where('status', 'completed')
-                ->selectRaw("SUM(CASE WHEN type = 'presential' THEN 1 ELSE 0 END) as presential")
-                ->selectRaw("SUM(CASE WHEN type = 'online' THEN 1 ELSE 0 END) as online")
-                ->selectRaw("SUM(CASE WHEN type = 'mixed' THEN 1 ELSE 0 END) as mixed")
+            $sessionTypesQuery = Schedule::query()
+                ->selectRaw("SUM(CASE WHEN session_type = 'cours' THEN 1 ELSE 0 END) as presential")
+                ->selectRaw("SUM(CASE WHEN session_type = 'td' THEN 1 ELSE 0 END) as online")
+                ->selectRaw("SUM(CASE WHEN session_type = 'tp' THEN 1 ELSE 0 END) as mixed")
                 ->selectRaw('COUNT(*) as total')
                 ->first();
 
@@ -498,22 +497,21 @@ class StatisticsController extends Controller
         $cacheKey = 'recent_groups';
 
         $data = Cache::remember($cacheKey, 300, function () {
-            return Group::with('professor.user')
+            return Program::with('department.faculty')
                 ->orderBy('created_at', 'desc')
                 ->limit(5)
                 ->get()
-                ->map(function ($group) {
-                    $studentCount = TutoringRequest::where('group_id', $group->id)
-                        ->where('status', 'approved')
-                        ->count();
-
+                ->map(function ($program) {
+                    $studentCount = CourseEnrollment::whereHas('course', function ($q) use ($program) {
+                        $q->where('program_id', $program->id);
+                    })->where('status', 'active')->count();
                     return [
-                        'name' => $group->name,
-                        'dept' => $group->departement,
-                        'tutor' => optional(optional($group->professor)->user)->name ?? 'N/A',
+                        'name' => $program->name,
+                        'dept' => optional($program->department)->name ?? 'N/A',
+                        'tutor' => optional(optional($program->department)->faculty)->name ?? 'N/A',
                         'students' => $studentCount,
-                        'max' => $group->max_students,
-                        'status' => $group->status,
+                        'max' => null,
+                        'status' => $program->is_active ? 'active' : 'inactive',
                     ];
                 });
         });
@@ -526,16 +524,19 @@ class StatisticsController extends Controller
         $cacheKey = 'pending_requests';
 
         $data = Cache::remember($cacheKey, 120, function () {
-            return TutoringRequest::with(['student.user', 'group'])
-                ->where('status', 'pending')
-                ->orderBy('created_at', 'desc')
+            return DB::table('enrollment_requests')
+                ->join('students', 'students.id', '=', 'enrollment_requests.student_id')
+                ->join('courses', 'courses.id', '=', 'enrollment_requests.course_id')
+                ->whereIn('enrollment_requests.status', ['submitted', 'pending_approval'])
+                ->orderByDesc('enrollment_requests.created_at')
+                ->select('students.name as student_name', 'courses.name as course_name', 'enrollment_requests.created_at', 'enrollment_requests.status')
                 ->limit(10)
                 ->get()
                 ->map(function ($request) {
                     return [
-                        'name' => optional(optional($request->student)->user)->name ?? 'N/A',
-                        'group' => optional($request->group)->name ?? 'N/A',
-                        'date' => $request->created_at->format('d/m/Y'),
+                        'name' => $request->student_name ?? 'N/A',
+                        'group' => $request->course_name ?? 'N/A',
+                        'date' => Carbon::parse($request->created_at)->format('d/m/Y'),
                         'status' => $request->status,
                     ];
                 });
